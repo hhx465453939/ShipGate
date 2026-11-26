@@ -1,0 +1,59 @@
+import path from 'node:path';
+import { exists, hashFile, readText } from '../lib/fsx.mjs';
+import { blockVersion } from '../inject/render.mjs';
+
+/**
+ * Verifies that each target harness actually holds what the manifest claims:
+ * skill files present with matching hashes, inject block present, gate bundle
+ * present for free-form harnesses.
+ */
+export function runShipGate({ harnesses = [], manifest, skillsSource }) {
+  const findings = [];
+
+  for (const harness of harnesses) {
+    const record = manifest.harnesses[harness.id] ?? { skills: {}, inject: null, gate: null };
+
+    if (harness.skillsPath) {
+      for (const [name, meta] of Object.entries(record.skills ?? {})) {
+        const installed = path.join(harness.skillsPath, name, 'SKILL.md');
+        const source = path.join(skillsSource, name, 'SKILL.md');
+        if (!exists(installed)) {
+          findings.push({ level: 'error', harness: harness.id, message: `skill 缺失：${installed}` });
+          continue;
+        }
+        const installedHash = hashFile(installed);
+        if (exists(source) && installedHash !== hashFile(source)) {
+          findings.push({ level: 'error', harness: harness.id, message: `skill 与源不一致，需要重装：${name}` });
+        } else if (meta.hash && installedHash !== meta.hash) {
+          findings.push({ level: 'error', harness: harness.id, message: `skill hash 与 manifest 不符：${name}` });
+        }
+      }
+    }
+
+    if (harness.injectPath) {
+      if (!exists(harness.injectPath)) {
+        findings.push({ level: 'error', harness: harness.id, message: `注入文件缺失：${harness.injectPath}` });
+      } else if (!blockVersion(readText(harness.injectPath))) {
+        findings.push({ level: 'error', harness: harness.id, message: `注入文件没有 shipgate 区块：${harness.injectPath}` });
+      }
+    }
+
+    if (harness.gateDest) {
+      if (!exists(harness.gateDest)) {
+        findings.push({ level: 'error', harness: harness.id, message: `硬门控产物缺失：${harness.gateDest}` });
+      } else if (!exists(path.join(harness.gateDest, 'policy.js'))) {
+        findings.push({ level: 'error', harness: harness.id, message: `硬门控产物不完整（缺 policy.js）：${harness.gateDest}` });
+      }
+    }
+  }
+
+  const ok = findings.length === 0;
+  return {
+    gate: 'ship',
+    ok,
+    code: ok ? 0 : 1,
+    summary: ok ? `${harnesses.length} 个 harness 的产物与 manifest 一致` : `${findings.length} 处产物不一致`,
+    findings,
+    evidence: { harnesses: harnesses.map((h) => h.id) },
+  };
+}

@@ -1,0 +1,44 @@
+{
+  "name": "shipgate",
+  "version": "0.1.0",
+  "description": "The gate chain for AI-written code: spec, quality, security and ship gates installed across every coding harness you use.",
+  "type": "module",
+  "bin": {
+    "shipgate": "bin/shipgate.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skills",
+    "templates",
+    "assets",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "doctor": "node bin/shipgate.mjs doctor"
+  },
+  "keywords": [
+    "code-quality",
+    "ai-slop",
+    "security-audit",
+    "spec-driven",
+    "coding-agent",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "pi-agent",
+    "skills",
+    "gate"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hhx465453939/ShipGate.git"
+  },
+  "license": "MIT"
+}
