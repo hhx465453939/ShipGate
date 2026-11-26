@@ -13,8 +13,8 @@ function tmpdir() {
 const block = renderBlock({ version: '0.1.0', min: 80 });
 
 test('渲染出的区块有 begin/end 标记且无时间戳', () => {
-  assert.equal(blockVersion(block), 'v1');
-  assert.match(block, /<!-- shipgate:begin v1 -->/);
+  assert.equal(blockVersion(block), 'v2');
+  assert.match(block, /<!-- shipgate:begin v2 -->/);
   assert.match(block, /<!-- shipgate:end -->/);
   assert.doesNotMatch(block, /\d{4}-\d{2}-\d{2}T/);
 });

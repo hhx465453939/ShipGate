@@ -1,0 +1,51 @@
+# TRACEABILITY — ShipGate v0.2
+
+对应 CHG：`CHG-20261126-skillpack-gates` ｜ SPEC v1 ｜ PRD 已批准 ｜ 承接 `CHG-20261126-shipgate-bootstrap`
+
+## 1. 需求 → 设计 → 里程碑 → 验收
+
+| # | PRD 需求 | SPEC 落点 | 里程碑 | 验收 | 验证证据 |
+|---|---|---|---|---|---|
+| R1 | 技能包必须是可用的 22 个 full-dev skill | §2.1 统一结构 | M1 | AC-1、AC-2 | `ls skills \| wc -l` = 27；`node scripts/migrate-skillpack.mjs --check` |
+| R2 | slash command 与 subagent 一起分发 | §2.2 能力矩阵 | M1、M2 | AC-3 | `ls ~/.claude/commands \| wc -l` = 22；`ls ~/.claude/agents` = 2 |
+| R3 | 硬门控由 ShipGate 拥有，覆盖 pi 与 dsh | §3.1 | M3 | AC-4 | `md5sum assets/gates/policy.js ~/.pi/.../policy.js` 一致 |
+| R4 | policy 单一真源、可增删受保护工作区、同步到各 harness | §3.2 | M3 | AC-5 | `shipgate policy --add-protected /tmp/x` 后两处都能 grep 到 |
+| R5 | 硬/软约束必须诚实标注 | §3.3 | M3、M6 | AC-8 | 注入区块与 README 均出现"软约束"字样 |
+| R6 | 一句话交给 agent 就能出选择题部署 | §4、§6 | M4、M6 | AC-6、AC-8 | `install --ask </dev/null` 不挂起；README 首屏含引导段 |
+| R7 | 包名 shipgate-cli，命令仍 shipgate，可全局升级 | §5 | M5 | AC-7 | `package.json.name`；`update --check` 的 URL |
+| R8 | 幂等：重复安装不重复追加 | 沿用 v0.1 §4.2 | M7 | AC-10 | 连续两次 install 后 md5/policy 比对 |
+| R9 | 测试覆盖新增能力 | §7 M7 | M7 | AC-9 | `node --test test/*.test.mjs` |
+
+## 2. 里程碑 → 独占文件清单
+
+| M | 独占文件 |
+|---|---|
+| M1 | `scripts/migrate-skillpack.mjs` `skills/**`（新增 22） `commands/**` `agents/**` `references/**` `templates/{dev-profile.schema.json,prd.json.example,rule.json.example}` |
+| M2 | `src/harness/index.mjs` `src/lib/skills.mjs` |
+| M3 | `assets/gates/**` `src/lib/gate.mjs` `src/commands/policy.mjs` `src/gates/hardgate.mjs` ；删除 `assets/pi-gate/**` |
+| M4 | `src/commands/ask.mjs` `src/commands/deploy.mjs`（install 分支） `src/cli.mjs` |
+| M5 | `package.json` `src/lib/update.mjs` `src/commands/deploy.mjs`（提示文案） |
+| M6 | `README.md` `templates/agents-snippet.md` `docs/{ARCHITECTURE,GATES,HARNESS}.md` `skills/shipgate*/**` |
+| M7 | `test/*.test.mjs` `tasks/CHG-20261126-skillpack-gates/TRACEABILITY.md` |
+
+## 3. 验收执行记录（实测填入，禁止预先勾选）
+
+| AC | 命令 | 结果 | 时间 |
+|---|---|---|---|
+| AC-1 | `ls skills \| wc -l` + `migrate-skillpack --check` | ✅ 27 个技能目录；frontmatter 体检 exit 0（修了 10 个缺 name 的） | 2026-11-26 |
+| AC-2 | 三个子目录文件数比对 | ✅ dev-host-init 8=8；discover-skill-opportunities 13=13；security-audit 5=5 | 2026-11-26 |
+| AC-3 | `install --harness claude` 后数 manifest | ✅ claude skills 27 / commands 22 / agents 2；`~/.claude/skills` 总数 100（含用户原有） | 2026-11-26 |
+| AC-4 | `install --harness pi` + hash | ✅ policy.js `905babdec3…`、classifier.js `9c70f1cd15…` 与 assets/gates 完全一致 | 2026-11-26 |
+| AC-5 | `policy --add/--rm-protected` | ✅ add 后全局 1 / pi 1；rm 后全局 0 / pi 0（修复了 union 导致 rm 失效的 bug） | 2026-11-26 |
+| AC-6 | `install --ask </dev/null --dry-run` | ✅ exit 0 不挂起，输出 5 个 harness 的计划与「软约束」标注 | 2026-11-26 |
+| AC-7 | 包名 / registry / 全局安装 | ✅ name=`shipgate-cli` version=0.2.0；`update.mjs` 查 `registry.npmjs.org/shipgate-cli/latest` | 2026-11-26 |
+| AC-8 | README 首屏 + 软/硬标注 | ✅ 首 40 行含「把下面这段原样丢给你的编码 agent」+ 仓库链接；README 4 处、注入模板 1 处明确「软约束」 | 2026-11-26 |
+| AC-9 | `node --test test/*.test.mjs` | ✅ 39/39 pass（新增技能包、policy、harness 能力矩阵、ask 非交互用例） | 2026-11-26 |
+| AC-10 | 连续两次 `install --harness pi` | ✅ APPEND_SYSTEM.md `801c2961…` 两次一致；policy.json `ac87e0ee…` 一致；skills 无变化 27 个 | 2026-11-26 |
+
+## 4. 风险与备注
+
+1. `assets/gates/**` 为 vendored 上游产物（源：`agent-config-bridge` 的 `bridge/gates/`）；升级需重新导出并记录 hash。
+2. full-dev skill 的 frontmatter 若不齐（缺 `name`/`description`），迁移脚本必须报错而非静默通过（Claude Code 不识别会导致"装了但没触发"）。
+3. `--ask` 在非 TTY 必须退化，否则 agent 调用会永久挂起。
+4. claude / codex / gemini 无进程级拦截，文档不得暗示它们有硬门控。

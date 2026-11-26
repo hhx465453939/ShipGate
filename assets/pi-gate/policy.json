@@ -1,7 +1,0 @@
-{
-  "config": {
-    "destructive_mode": "enforce",
-    "destructive_mode_until": 0,
-    "protected_worktrees": []
-  }
-}

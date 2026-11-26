@@ -31,7 +31,11 @@ bin/shipgate.mjs ─► src/cli.mjs（解析 argv、加载配置、分发）
 { id, label, detect, skills, inject, gate }
 ```
 
-`gate` 只有自由度高的 harness 才需要（pi / dsh），指向 `assets/pi-gate/` 那份 vendored 硬门控产物。Claude Code / Codex 这类成熟 harness 不带 `gate`，靠 skills + 注入文档约束。
+`gate` 只有自由度高的 harness 才需要（pi / dsh），指向 `assets/gates/` 里那份 vendored 硬门控产物（classifier / policy 引擎 / pi 与 dsh 两套适配 / profiles）。Claude Code / Codex / Gemini / Cursor 不带 `gate`，靠 skills + 注入文档约束——文档里明确写"软约束"，不假装有硬门控。
+
+## 3.5 技能包
+
+`skills/` 是随包分发的 27 个开发 skill（22 个全周期 + 5 个闸用法），`commands/` 22 个 slash command，`agents/` 2 个 subagent。安装时按 harness 能力落到对应目录（见 `docs/HARNESS.md`），清单从磁盘扫描而来，新增 skill 不需要改代码。
 
 自定义 harness 从 `~/.config/shipgate/config.json` 的 `custom` 读取，不改代码就能接新 agent。
 

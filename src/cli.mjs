@@ -3,6 +3,7 @@ import { c, log } from './lib/log.mjs';
 import { loadConfig } from './lib/cfg.mjs';
 import { doctor, install, inject, status, adopt, revoke, rollback, update, printUpdateHint } from './commands/deploy.mjs';
 import { listGates, specGate, qualityGate, securityGate } from './commands/gates.mjs';
+import { policyCommand } from './commands/policy.mjs';
 
 const COMMANDS = {
   doctor,
@@ -13,6 +14,7 @@ const COMMANDS = {
   revoke,
   rollback,
   update,
+  policy: policyCommand,
   gates: listGates,
   spec: specGate,
   quality: qualityGate,
@@ -48,14 +50,15 @@ export function parseArgs(argv) {
 }
 
 function help() {
-  log.plain(`${c.bold('shipgate')} ${VERSION} — the gate chain for AI-written code
+  log.plain(`${c.bold('shipgate')} ${VERSION} — 全周期代码开发的技能与闸门分发器
 
-${c.bold('常用')}
-  shipgate doctor                     体检：harness / 引擎 / 注入区块
-  shipgate install [--harness id]     部署 skills + 注入 + 硬门控
+${c.bold('部署（最常用）')}
+  shipgate install --ask              交互式：列出探测到的 agent，逐个确认
+  shipgate install --yes              非交互：全部已探测 harness
+  shipgate install --harness claude,pi
   shipgate install --dry-run          只看将写什么
-  shipgate update                     全局更新并重装
-  shipgate update --check             只查新版本
+  shipgate doctor                     体检：skills / commands / agents / 门控 / 引擎
+  shipgate status [--json]            每个 harness 装了什么
 
 ${c.bold('四道闸')}
   shipgate spec check [dir]           契约闸（tasks/CHG-*/ 三件套）
@@ -63,11 +66,16 @@ ${c.bold('四道闸')}
   shipgate security --scope <file>    安全闸（cbh，必须显式给范围）
   shipgate gates                      闸清单 + 引擎状态
 
-${c.bold('受管')}
-  shipgate status [--json]            每个 harness 装了什么
-  shipgate adopt <id>                 纳入受管
-  shipgate revoke <id>                撤回并恢复备份
-  shipgate rollback <id>              用最近备份回滚
+${c.bold('硬门控（pi / dsh 类）')}
+  shipgate policy                     策略真源 + 各 harness 落地状态
+  shipgate policy --add-protected <dir>
+  shipgate policy --rm-protected <dir>
+  shipgate policy --mode enforce|bypass
+  shipgate policy --sync
+
+${c.bold('受管与升级')}
+  shipgate adopt <id>                 纳入受管      shipgate revoke <id>   撤回并恢复备份
+  shipgate rollback <id>              最近备份回滚  shipgate update [--check]
 
 ${c.bold('harness')}  claude · pi · codex · gemini · cursor · 自定义（~/.config/shipgate/config.json）
 ${c.bold('文档')}     https://github.com/hhx465453939/ShipGate`);
@@ -102,9 +110,7 @@ export async function main(argv) {
     args,
   };
 
-  if (!flags.json && name !== 'update') {
-    await printUpdateHint();
-  }
+  if (!flags.json && name !== 'update') await printUpdateHint();
 
   const code = await command(ctx);
   return typeof code === 'number' ? code : 0;

@@ -1,7 +1,7 @@
 {
-  "name": "shipgate",
-  "version": "0.1.0",
-  "description": "The gate chain for AI-written code: spec, quality, security and ship gates installed across every coding harness you use.",
+  "name": "shipgate-cli",
+  "version": "0.2.0",
+  "description": "ShipGate — the full-lifecycle gate chain for AI-written code: 27 dev skills, spec/quality/security/ship gates, hard gates, and one-command deployment across coding harnesses.",
   "type": "module",
   "bin": {
     "shipgate": "bin/shipgate.mjs"
@@ -10,8 +10,12 @@
     "bin",
     "src",
     "skills",
+    "commands",
+    "agents",
+    "references",
     "templates",
     "assets",
+    "scripts",
     "docs",
     "README.md",
     "LICENSE"
@@ -21,7 +25,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "doctor": "node bin/shipgate.mjs doctor"
+    "doctor": "node bin/shipgate.mjs doctor",
+    "skillpack:check": "node scripts/migrate-skillpack.mjs --check"
   },
   "keywords": [
     "code-quality",
@@ -34,6 +39,7 @@
     "gemini-cli",
     "pi-agent",
     "skills",
+    "hard-gates",
     "gate"
   ],
   "repository": {

@@ -4,7 +4,8 @@ import { readIfExists, today, writeText } from './fsx.mjs';
 import { run } from './exec.mjs';
 import { VERSION } from '../version.mjs';
 
-const REGISTRY = 'https://registry.npmjs.org/shipgate/latest';
+const PACKAGE = 'shipgate-cli';
+const REGISTRY = `https://registry.npmjs.org/${PACKAGE}/latest`;
 
 function stampPath() {
   return path.join(cacheDir(), 'last-update-check');
@@ -53,6 +54,14 @@ export async function checkLatest({ timeoutMs = 6000 } = {}) {
 }
 
 export function selfUpdate() {
-  const result = run('npm', ['i', '-g', 'shipgate@latest'], { timeout: 900_000 });
+  const result = run('npm', ['i', '-g', `${PACKAGE}@latest`], { timeout: 900_000 });
   return { ok: result.ok, code: result.code, stderr: result.stderr.slice(0, 4000), stdout: result.stdout.slice(-2000) };
+}
+
+export function installHint() {
+  return `npm i -g ${PACKAGE}`;
+}
+
+export function updateHint() {
+  return `shipgate update   # 全局 ${PACKAGE}`;
 }

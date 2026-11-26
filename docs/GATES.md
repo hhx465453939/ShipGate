@@ -43,3 +43,27 @@
 3. 带 gate 的 harness 有 `policy.js` 等硬门控产物。
 
 `shipgate status` 是它的输出视图，`shipgate doctor` 会额外跑一遍一致性检查。
+
+## 技能包与闸的联动
+
+四道闸不是孤立的命令：技能包里的 skill 会在对应时机调用它们。
+
+| 阶段 | skill | 触发哪道闸 |
+|---|---|---|
+| 立项 / 改需求 | `ai-spec`、`prd`、`intent-grill` | 写完后 `shipgate spec check` |
+| 写代码 | `goal-driven-development`、`ralph` | 每次编辑后 `shipgate quality` |
+| 调试 | `code-debugger`、`debug-ui` | 修完 `shipgate quality` |
+| 审查 | `code-review`、`security-audit` | `shipgate quality` + `shipgate security --scope` |
+| 发布 | `nodejs-npm-auto-release`、`gh-actions-architect` | 提交前两道闸都要绿 |
+
+纪律：skill 负责「怎么做」，闸负责「过不过」。skill 写完代码不能自己宣告完成，必须跑闸拿到退出码。
+
+## 硬门控与闸的区别（别混）
+
+| | 硬门控（gate bundle） | 四道闸（shipgate gates） |
+|---|---|---|
+| 作用时机 | agent 执行命令时 | 阶段交付时 |
+| 拦截方式 | 进程级：直接拦下命令 | 退出码：判不通过，交给人/agent 修 |
+| 覆盖 harness | pi / dsh（有 hook 面） | 全部 |
+| 策略来源 | `shipgate policy` | `shipgate quality --min` 等 |
+
