@@ -55,6 +55,7 @@ export function installOne(ctx, harness, manifest) {
 
   log.step(`${harness.label} (${harness.id})${dryRun ? c.dim(' — dry-run') : ''}`);
   if (skills.installed.length) log.ok(`  skills ${skills.installed.length} 个（共 ${listSkillNames().length} 个可分发）`);
+  else if (!harness.skillsPath) log.info(`  ${c.dim('skills 跳过：harness 无 skills 目录')}`);
   if (skills.skipped.length) log.info(`  ${c.dim(`skills 无变化 ${skills.skipped.length} 个（hash 一致）`)}`);
   if (commands.installed.length) log.ok(`  commands ${commands.installed.length} 个`);
   if (commands.skippedReason) log.info(`  ${c.dim(`commands 跳过：${commands.skippedReason}`)}`);
@@ -104,7 +105,7 @@ export async function doctor(ctx) {
     rows.push([
       harness.id,
       detected(harness) ? 'yes' : 'no',
-      `${Object.keys(record.skills ?? {}).length}/${listSkillNames().length}`,
+      caps.skills ? `${Object.keys(record.skills ?? {}).length}/${listSkillNames().length}` : '-',
       `${Object.keys(record.commands ?? {}).length}${caps.commands ? '' : '(-)'}`,
       `${Object.keys(record.agents ?? {}).length}${caps.agents ? '' : '(-)'}`,
       injectState,
