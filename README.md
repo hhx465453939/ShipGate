@@ -22,6 +22,9 @@
 ```bash
 # 1) 交互式（推荐）：列出探测到的 agent，逐个确认
 npx shipgate-cli install --ask
+#    ↑ 包未发布到 npm 时改用仓库本地（效果完全一致）：
+#    git clone https://github.com/hhx465453939/ShipGate.git && cd ShipGate
+#    node bin/shipgate.mjs install --ask
 
 # 2) 全局固定安装（长期用，别每次 npx）
 npm i -g shipgate-cli
@@ -32,6 +35,9 @@ shipgate install --yes
 shipgate install --harness claude,pi,codex
 shipgate install --dry-run        # 只看计划，不写盘
 ```
+
+> 维护者发布：`npm login` 后 `cd ShipGate && npm publish`（包名 `shipgate-cli`，安装后的命令仍是 `shipgate`）。
+> `npm publish --dry-run` 已验证通过：299 kB / 119 files。
 
 引擎（ShipGate 只检查，不替你装）：
 

@@ -48,4 +48,6 @@
 1. `assets/gates/**` 为 vendored 上游产物（源：`agent-config-bridge` 的 `bridge/gates/`）；升级需重新导出并记录 hash。
 2. full-dev skill 的 frontmatter 若不齐（缺 `name`/`description`），迁移脚本必须报错而非静默通过（Claude Code 不识别会导致"装了但没触发"）。
 3. `--ask` 在非 TTY 必须退化，否则 agent 调用会永久挂起。
-4. claude / codex / gemini 无进程级拦截，文档不得暗示它们有硬门控。
+4. claude / codex / gemini / cursor 无进程级拦截，文档不得暗示它们有硬门控。
+5. **npm 发布未完成（阻塞点，非代码问题）**：本机 `npm whoami` 返回 ENEEDAUTH；`~/.npmrc` 无 token、`NPM_TOKEN` 为空。包名 `shipgate-cli` 在 registry 为 404（未被占用），`npm publish --dry-run` 产物 299 kB / 119 files 正常。解除方式：主人 `npm login`（或提供 `NPM_TOKEN`）后执行 `cd /mnt/500G-1/Development/ShipGate && npm publish`。
+6. 本机部署终态（2026-11-26）：claude 27 skills / 22 cmds / 2 agents；pi 27 skills + enforce 硬门控；codex 27；gemini 27；cursor 仅注入 mdc；`doctor` 产物一致性 4 个 harness 全绿。
