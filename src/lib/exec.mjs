@@ -8,7 +8,15 @@ export function which(cmd) {
   for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = path.join(dir, cmd + ext);
-      const stat = fs.statSync(candidate, { throwIfNoEntry: false });
+      // statSync throws EACCES (not just ENOENT) on Windows' App Execution
+      // Aliases such as the Store stub python3.exe; throwIfNoEntry only covers
+      // ENOENT. An unreadable candidate is simply not a usable binary.
+      let stat;
+      try {
+        stat = fs.statSync(candidate, { throwIfNoEntry: false });
+      } catch {
+        continue;
+      }
       if (!stat?.isFile()) continue;
       if (process.platform === 'win32' || (stat.mode & 0o111) !== 0) return candidate;
     }

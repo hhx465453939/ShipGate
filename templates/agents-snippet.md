@@ -46,6 +46,17 @@ shipgate policy --mode enforce|bypass
 
 受保护工作区里的 `git stash/reset --hard/clean -f/checkout -- .` 等清场命令会被拦下；需要临时放宽用 `--mode bypass` 并说明原因。
 
+### 引擎（闸的依赖，按需安装；缺了闸会退出码 3）
+
+ShipGate 只检查不代装，自行执行：
+
+```bash
+npm i -g aislop                                                  # quality 闸：slop 检测/修复
+pipx install git+https://github.com/elementalsouls/Claude-BugHunter  # security 闸：cbh
+```
+
+调试走 `code-debugger` / `debug-ui` skill，纯提示词、不需要额外引擎；`shipgate doctor` 会列出当前缺哪些引擎。
+
 ### 硬规则
 
 1. `quality` 不通过（score < {{MIN}} 或有 error 级发现）→ 先 `aislop fix`，不许带病提交。

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 import { mergePolicy } from '../src/lib/gate.mjs';
 import { allHarnesses, capabilities, resolveHarness } from '../src/harness/index.mjs';
@@ -32,7 +33,7 @@ test('claude 有 skills/commands/agents；pi 有硬门控与 prompts 命令', ()
   assert.equal(piCaps.gate, true);
   assert.equal(piCaps.commands, true, 'pi 的 ~/.pi/agent/prompts 可直接复用 commands');
   assert.equal(piCaps.agents, false, 'pi 没有 subagent 目录');
-  assert.equal(pi.commandsPath.endsWith('/.pi/agent/prompts'), true);
+  assert.equal(pi.commandsPath.endsWith(path.join('.pi', 'agent', 'prompts')), true);
 });
 
 test('内置 dsh 带 dsh 适配的硬门控', () => {

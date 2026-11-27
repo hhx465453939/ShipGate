@@ -215,7 +215,7 @@ export async function install(ctx) {
     selected = picked.selected;
     missing = picked.missing;
     reportMissing(missing);
-    if (ctx.flags.yes) log.info(c.dim(`--yes：对全部已探测 harness 执行（${allDetected.map((h) => h.id).join(', ')}）`));
+    if (ctx.flags.yes) log.info(c.dim(`--yes：不需要交互，按选定的 harness 执行（${selected.map((h) => h.id).join(', ')}）`));
     if (selected.length > 0) printPlan(selected, ctx.cfg);
   }
 

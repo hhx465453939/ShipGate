@@ -36,7 +36,7 @@ test('自定义 harness 可解析且无 detect 时视为存在', () => {
     custom: { myagent: { label: 'My Agent', skills: '~/.myagent/skills', inject: '~/.myagent/AGENTS.md' } },
   });
   const mine = resolveHarness(allHarnesses(cfg).find((h) => h.id === 'myagent'));
-  assert.equal(mine.skillsPath.endsWith('/.myagent/skills'), true);
+  assert.equal(mine.skillsPath.endsWith(path.join('.myagent', 'skills')), true);
   assert.equal(mine.detectPath, null, '未声明 detect 应视为总是存在');
   const { selected } = selectHarnesses({ requested: 'myagent', cfg });
   assert.equal(selected.length, 1);
