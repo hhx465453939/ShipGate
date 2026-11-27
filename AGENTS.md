@@ -6,7 +6,7 @@
 
 ShipGate = 代码出厂前的闸链。四道闸：`spec`（契约）、`quality`（AI slop）、`security`（授权范围内的安全审计）、`ship`（把 skills/注入/硬门控装到各个 harness）。
 
-目录地图：`bin/` CLI 入口 · `src/gates/` 闸判据 · `src/harness/` 适配 · `src/inject/` 托管区块 · `src/lib/` 零依赖工具 · `skills/` 随包分发的 skill · `assets/pi-gate/` vendored 硬门控 · `docs/` · `tests/`。
+目录地图：`bin/` CLI 入口 · `src/gates/` 闸判据 · `src/harness/` 适配 · `src/inject/` 托管区块 · `src/lib/` 零依赖工具 · `skills/` 随包分发的 27 个 skill · `commands/` 22 个 slash command · `agents/` 2 个 subagent · `assets/gates/` vendored 硬门控 · `scripts/migrate-skillpack.mjs` 技能包迁移 · `docs/` · `test/`。
 
 ## 改代码前必须做
 
@@ -14,9 +14,9 @@ ShipGate = 代码出厂前的闸链。四道闸：`spec`（契约）、`quality`
 2. 没有契约 → 先立契约，再动手。**没有契约的改动不算完成。**
 3. 改完跑：
    ```bash
-   node --test test/
+   node --test test/*.test.mjs
+   node scripts/migrate-skillpack.mjs --check
    node bin/shipgate.mjs spec check
-   node bin/shipgate.mjs quality --min 80
    ```
 4. 把 TRACEABILITY 的"验收执行记录"逐条填成实测结果，不许预先勾选。
 
@@ -29,6 +29,9 @@ ShipGate = 代码出厂前的闸链。四道闸：`spec`（契约）、`quality`
 | security 闸不得注册为自动钩子 | 主动探测在错误范围上违法 |
 | 不 fork aislop / cbh | 上游迭代快，fork = 永久 merge 负债 |
 | 删除类动作只作用于 manifest 记录且 hash 匹配的路径 | `--prune` 不能变成误删工具 |
+| skill 的 `SKILL.md` 必须带 `name:` 与 `description:` | 缺了会被加载但永不触发（静默失败） |
+| command 不得写死 `.claude/skills/x.md` 路径 | 迁移后是目录，且各 harness 路径不同；按 skill 名引用 |
+| `--ask` 在非 TTY 必须退化 | 否则 agent 调用会永久挂起 |
 | 不在实例目录做 git 清场 | 工作区脏 = 正在运行的状态 |
 
 ## 代码风格

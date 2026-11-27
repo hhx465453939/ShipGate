@@ -4,7 +4,7 @@ description: 激活 API-First 模块化开发框架 — 后端封装为独立API
 
 你现在激活了 **API-First 模块化开发框架**。
 
-请先阅读 `.claude/skills/api-first-modular.md` 获取完整的方法论和工作流程。
+请先阅读 skill `api-first-modular` 获取完整的方法论和工作流程。
 
 ## 快速指引
 

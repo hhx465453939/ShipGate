@@ -5,12 +5,15 @@
 | id | 标签 | 探测路径 | skills | commands | agents | 注入文件 | 硬门控 |
 |---|---|---|---|---|---|---|---|
 | `claude` | Claude Code | `~/.claude` | `~/.claude/skills` | `~/.claude/commands` | `~/.claude/agents` | `~/.claude/CLAUDE.md` | — |
-| `pi` | pi agent | `~/.pi` | `~/.agents/skills` | — | — | `~/.pi/agent/APPEND_SYSTEM.md` | `~/.pi/agent/extensions/enforce-rules` |
+| `pi` | pi agent | `~/.pi` | `~/.agents/skills` | `~/.pi/agent/prompts` | — | `~/.pi/agent/APPEND_SYSTEM.md` | `~/.pi/agent/extensions/enforce-rules` |
+| `dsh` | dsh | `~/.dsh` | `~/.dsh/skills` | — | — | `~/.dsh/AGENTS.md` | `~/.dsh/extensions/enforce-rules` |
 | `codex` | Codex CLI | `~/.codex` | `~/.codex/skills` | — | — | `~/.codex/AGENTS.md` | — |
 | `gemini` | Gemini CLI | `~/.gemini` | `~/.gemini/skills` | — | — | `~/.gemini/GEMINI.md` | — |
 | `cursor` | Cursor | `~/.cursor` | —（无 skills 目录） | — | — | `~/.cursor/rules/shipgate.mdc` | — |
 
 能力缺失不是缺陷：harness 没有对应目录就跳过，并在输出里写明「commands 跳过：harness 无 commands 目录」，不静默。
+
+**pi 的 prompts 就是它的 slash command 目录**：格式（frontmatter `description` + `# /name`）与 ShipGate 的 `commands/*.md` 一致，所以 22 个命令原样复用。目标位置已有同名文件时（比如你自己手写的 prompt），ShipGate 会备份为 `*.shipgate-bak.<日期>` 并在输出里明确报出「覆盖了 N 个」，不会静默覆盖。
 
 ## 两类 harness，两种约束策略
 

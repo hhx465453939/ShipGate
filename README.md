@@ -84,7 +84,8 @@ pipx install git+https://github.com/elementalsouls/Claude-BugHunter  # security 
 | harness | skills | commands | agents | 注入 | 门控 |
 |---|---|---|---|---|---|
 | Claude Code | ✓ | ✓ | ✓ | `CLAUDE.md` | 软约束 |
-| pi agent | ✓ | — | — | `APPEND_SYSTEM.md` | **硬拦截** |
+| pi agent | ✓ | ✓（prompts） | — | `APPEND_SYSTEM.md` | **硬拦截** |
+| dsh | ✓ | — | — | `AGENTS.md` | **硬拦截** |
 | Codex CLI | ✓ | — | — | `AGENTS.md` | 软约束 |
 | Gemini CLI | ✓ | — | — | `GEMINI.md` | 软约束 |
 | Cursor | — | — | — | `rules/shipgate.mdc` | 软约束 |

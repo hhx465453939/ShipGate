@@ -25,10 +25,23 @@ export const BUILTIN = [
     label: 'pi agent',
     detect: '~/.pi',
     skills: '~/.agents/skills',
-    commands: null,
+    // pi stores prompt/command templates here; the file shape (frontmatter
+    // `description` + `# /name`) is identical to ShipGate's commands, so the 22
+    // slash commands are reusable as-is.
+    commands: '~/.pi/agent/prompts',
     agents: null,
     inject: '~/.pi/agent/APPEND_SYSTEM.md',
     gate: { dest: '~/.pi/agent/extensions/enforce-rules', kind: 'pi' },
+  },
+  {
+    id: 'dsh',
+    label: 'dsh',
+    detect: '~/.dsh',
+    skills: '~/.dsh/skills',
+    commands: null,
+    agents: null,
+    inject: '~/.dsh/AGENTS.md',
+    gate: { dest: '~/.dsh/extensions/enforce-rules', kind: 'dsh' },
   },
   {
     id: 'codex',
@@ -117,12 +130,14 @@ export function capabilities(harness) {
 /** Target harnesses for a run: explicit --harness wins, otherwise config list. */
 export function selectHarnesses({ requested, cfg, includeUndetected = false }) {
   const all = allHarnesses(cfg).map(resolveHarness);
+  const configured = cfg.harnesses === 'auto' || cfg.harnesses == null ? null : cfg.harnesses;
+
   const wanted =
     requested && requested !== 'all'
       ? requested.split(',').map((s) => s.trim()).filter(Boolean)
-      : requested === 'all'
-        ? all.map((h) => h.id)
-        : cfg.harnesses;
+      : requested === 'all' || configured === null
+        ? all.filter(detected).map((h) => h.id)
+        : configured;
 
   const selected = wanted.map((id) => all.find((h) => h.id === id) ?? resolveHarness(getHarness(id, cfg)));
   const missing = selected.filter((h) => !detected(h));

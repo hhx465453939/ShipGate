@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { VERSION } from '../version.mjs';
 import { c, log, table } from '../lib/log.mjs';
-import { backupOnce, exists, latestBackup, readIfExists, writeText } from '../lib/fsx.mjs';
+import { backupOnce, earliestBackup, exists, latestBackup, readIfExists, writeText } from '../lib/fsx.mjs';
 import { ensureHarnessRecord, harnessRecord, loadManifest, saveManifest } from '../lib/state.mjs';
 import { allHarnesses, capabilities, detected, getHarness, resolveHarness, selectHarnesses } from '../harness/index.mjs';
 import { installAgents, installCommands, installSkills, listSkillNames, pruneSkills, skillsSource } from '../lib/skills.mjs';
@@ -9,7 +9,7 @@ import { blockVersion, cursorFrontmatter, renderBlock, upsertBlock } from '../in
 import { gateStatus, installGateBundle, loadPolicy, syncPolicyToHarnesses } from '../lib/gate.mjs';
 import { resolveAislop } from '../gates/quality.mjs';
 import { runShipGate } from '../gates/ship.mjs';
-import { version as toolVersion, which } from '../lib/exec.mjs';
+import { run, version as toolVersion, which } from '../lib/exec.mjs';
 import { checkLatest, checkedToday, markChecked, selfUpdate } from '../lib/update.mjs';
 import { askSelection, printPlan } from './ask.mjs';
 
@@ -58,8 +58,14 @@ export function installOne(ctx, harness, manifest) {
   else if (!harness.skillsPath) log.info(`  ${c.dim('skills 跳过：harness 无 skills 目录')}`);
   if (skills.skipped.length) log.info(`  ${c.dim(`skills 无变化 ${skills.skipped.length} 个（hash 一致）`)}`);
   if (commands.installed.length) log.ok(`  commands ${commands.installed.length} 个`);
+  if (commands.overwritten?.length) {
+    log.warn(`  commands 覆盖了你原有的 ${commands.overwritten.length} 个同名文件（已备份 *.shipgate-bak.*）：${commands.overwritten.slice(0, 5).join(', ')}${commands.overwritten.length > 5 ? ' …' : ''}`);
+  }
   if (commands.skippedReason) log.info(`  ${c.dim(`commands 跳过：${commands.skippedReason}`)}`);
   if (agents.installed.length) log.ok(`  agents ${agents.installed.length} 个`);
+  if (agents.overwritten?.length) {
+    log.warn(`  agents 覆盖了你原有的 ${agents.overwritten.length} 个同名文件（已备份）：${agents.overwritten.join(', ')}`);
+  }
   if (agents.skippedReason) log.info(`  ${c.dim(`agents 跳过：${agents.skippedReason}`)}`);
   if (harness.gateDest) log.ok(`  硬门控 → ${harness.gateDest}（${gate.kind} 适配，policy 已合并）`);
   if (inject.action !== 'none') log.ok(`  注入 → ${harness.injectPath} [${inject.action}]`);
@@ -69,14 +75,48 @@ export function installOne(ctx, harness, manifest) {
 export function checkEngines(ctx) {
   const aislopBin = resolveAislop(ctx.cwd);
   const cbhBin = which('cbh');
+  const pipx = which('pipx');
+  const pip = which('pip3') ?? which('pip');
+  const py = which('python3') ?? which('python');
+
+  // Fallback chain: pipx (isolated venv) → pip --user → python -m pip. Naming
+  // only pipx left users without it staring at a command they cannot run.
+  const cbhInstall = pipx
+    ? 'pipx install git+https://github.com/elementalsouls/Claude-BugHunter'
+    : pip
+      ? 'pip3 install --user git+https://github.com/elementalsouls/Claude-BugHunter'
+      : py
+        ? 'python3 -m pip install --user git+https://github.com/elementalsouls/Claude-BugHunter'
+        : '需先装 Python 3.9+，再 pipx install git+https://github.com/elementalsouls/Claude-BugHunter';
+
   return {
     aislop: { bin: aislopBin, version: aislopBin ? toolVersion(aislopBin) : null, install: 'npm i -g aislop' },
-    cbh: {
-      bin: cbhBin,
-      version: cbhBin ? toolVersion(cbhBin) : null,
-      install: 'pipx install git+https://github.com/elementalsouls/Claude-BugHunter',
-    },
+    cbh: { bin: cbhBin, version: cbhBin ? toolVersion(cbhBin) : null, install: cbhInstall, packageManager: pipx ? 'pipx' : pip ? 'pip3' : 'none' },
   };
+}
+
+/**
+ * Per-edit quality hook is opt-in: it runs aislop on every edit, which is a
+ * real cost on a small machine. `--hooks` asks for it explicitly instead of
+ * silently wiring a hook into the user's agent.
+ */
+function installAislopHooks(ctx, harnesses) {
+  const bin = resolveAislop(ctx.cwd);
+  if (!bin) {
+    log.warn('aislop 未安装，跳过 --hooks（先 npm i -g aislop）');
+    return;
+  }
+  const supported = harnesses.map((h) => h.id).filter((id) => ['claude', 'codex', 'cursor', 'gemini'].includes(id));
+  if (supported.length === 0) {
+    log.warn('--hooks：所选 harness 不支持 per-edit 钩子');
+    return;
+  }
+  log.title('per-edit quality 钩子');
+  for (const id of supported) {
+    const result = run(bin, ['hook', 'install', `--${id}`], { timeout: 120_000 });
+    if (result.ok) log.ok(`${id} 钩子已安装`);
+    else log.warn(`${id} 钩子安装失败：${(result.stderr || result.stdout).split('\n')[0]}`);
+  }
 }
 
 export async function printUpdateHint() {
@@ -133,9 +173,13 @@ export async function doctor(ctx) {
   const policy = loadPolicy();
   log.title('硬门控策略');
   log.plain(`${policy.config.destructive_mode} · 受保护工作区 ${policy.config.protected_worktrees.length} 条`);
-  const gated = harnesses.filter((h) => h.gateDest).map((h) => h.id);
+  // 只把真正装了的算“硬拦截”；声明了 gate 但本机未装的 harness 单独列出，
+  // 否则未安装的 dsh 也会被误报成受硬门控保护。
+  const gated = harnesses.filter((h) => h.gateDest && detected(h) && gateStatus(h).installed).map((h) => h.id);
+  const gatedNotInstalled = harnesses.filter((h) => h.gateDest && (!detected(h) || !gateStatus(h).installed)).map((h) => h.id);
   const soft = harnesses.filter((h) => !h.gateDest && detected(h)).map((h) => h.id);
   if (gated.length) log.info(`  ${c.yellow('硬拦截')}：${gated.join(', ')}`);
+  if (gatedNotInstalled.length) log.info(`  ${c.dim(`支持硬门控但未安装：${gatedNotInstalled.join(', ')}`)}`);
   if (soft.length) log.info(`  ${c.dim(`软约束：${soft.join(', ')}（skills + 注入，无进程级拦截）`)}`);
 
   const managed = harnesses.filter((h) => Object.keys(harnessRecord(manifest, h.id)?.skills ?? {}).length);
@@ -149,17 +193,17 @@ export async function doctor(ctx) {
 
 export async function install(ctx) {
   const dryRun = Boolean(ctx.flags['dry-run']);
+  const allDetected = allHarnesses(ctx.cfg).map(resolveHarness).filter(detected);
   let selected = [];
   let missing = [];
 
-  if (ctx.flags.ask && !ctx.flags.harness) {
-    const candidates = allHarnesses(ctx.cfg).map(resolveHarness).filter(detected);
-    if (candidates.length === 0) {
+  if (ctx.flags.ask && !ctx.flags.harness && !ctx.flags.yes) {
+    if (allDetected.length === 0) {
       log.err('没有探测到任何 harness（检查 ~/.claude / ~/.pi / ~/.codex 等目录）');
       return 3;
     }
-    printPlan(candidates, ctx.cfg);
-    const answer = await askSelection(candidates);
+    printPlan(allDetected, ctx.cfg);
+    const answer = await askSelection(allDetected);
     if (answer.note) log.info(c.dim(answer.note));
     if (answer.selected.length === 0) {
       log.warn('未选择任何 harness，已取消');
@@ -171,6 +215,7 @@ export async function install(ctx) {
     selected = picked.selected;
     missing = picked.missing;
     reportMissing(missing);
+    if (ctx.flags.yes) log.info(c.dim(`--yes：对全部已探测 harness 执行（${allDetected.map((h) => h.id).join(', ')}）`));
     if (selected.length > 0) printPlan(selected, ctx.cfg);
   }
 
@@ -200,8 +245,10 @@ export async function install(ctx) {
     else log.warn(`${name} 未安装 → ${info.install}`);
   }
   if (missingEngines.length === 0 && !dryRun) {
-    log.info(c.dim('提示：quality 的 per-edit 钩子需显式启用 → aislop hook install --claude'));
+    log.info(c.dim('提示：quality 的 per-edit 钩子需显式启用 → shipgate install --hooks 或 aislop hook install --claude'));
   }
+
+  if (ctx.flags.hooks && !dryRun) installAislopHooks(ctx, selected);
 
   if (!dryRun) await maybeAutoUpdate(ctx);
   else log.info(c.dim('dry-run 结束；去掉 --dry-run 才会写盘'));
@@ -298,10 +345,12 @@ export function revoke(ctx) {
   const manifest = loadManifest();
   for (const id of ids) {
     const harness = resolveHarness(getHarness(id, ctx.cfg));
-    const backup = harness.injectPath ? latestBackup(harness.injectPath) : null;
+    // revoke 要回到 ShipGate 动手之前那个版本：只有最早的备份是干净的，
+    // 用最新备份会把上一版注入区块装回去，等于没撤。
+    const backup = harness.injectPath ? earliestBackup(harness.injectPath) : null;
     if (backup) {
       writeText(harness.injectPath, readIfExists(backup) ?? '');
-      log.ok(`${id} 注入文件已从备份恢复：${path.basename(backup)}`);
+      log.ok(`${id} 注入文件已恢复为最初版本：${path.basename(backup)}`);
     } else {
       log.warn(`${id} 没有可用备份，未改动注入文件`);
     }

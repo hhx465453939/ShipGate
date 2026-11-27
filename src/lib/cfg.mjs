@@ -13,7 +13,9 @@ export function expand(p) {
 
 export const DEFAULTS = {
   version: 1,
-  harnesses: ['claude', 'pi'],
+  // 'auto' = every harness detected on this machine. A fixed list silently
+  // skipped agents (e.g. codex/gemini) unless the user edited config first.
+  harnesses: 'auto',
   custom: {},
   quality: { min: 80 },
   spec: { dir: 'tasks' },

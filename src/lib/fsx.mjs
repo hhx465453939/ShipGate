@@ -74,12 +74,24 @@ export function backupOnce(file) {
   return target;
 }
 
-export function latestBackup(file) {
+export function backupList(file) {
   const dir = path.dirname(file);
   const base = path.basename(file) + '.shipgate-bak.';
-  const candidates = listDir(dir)
+  return listDir(dir)
     .filter((e) => e.isFile() && e.name.startsWith(base))
     .map((e) => path.join(dir, e.name))
     .sort();
-  return candidates.at(-1) ?? null;
+}
+
+export function latestBackup(file) {
+  return backupList(file).at(-1) ?? null;
+}
+
+/**
+ * The oldest backup is the only one taken before ShipGate ever wrote to the
+ * file. `revoke` must use it: restoring the latest would put back an older
+ * injected block instead of the user's original document.
+ */
+export function earliestBackup(file) {
+  return backupList(file)[0] ?? null;
 }

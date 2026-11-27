@@ -51,7 +51,7 @@ function copyFile(src, dest, { dryRun }) {
 }
 
 function installFileSet(files, srcDir, destDir, recordKey, record, { dryRun }) {
-  const result = { installed: [], skipped: [] };
+  const result = { installed: [], skipped: [], overwritten: [] };
   record[recordKey] ??= {};
   for (const file of files) {
     const src = path.join(srcDir, file);
@@ -61,6 +61,10 @@ function installFileSet(files, srcDir, destDir, recordKey, record, { dryRun }) {
       result.skipped.push(file);
       continue;
     }
+    // The file exists but was not put there by ShipGate (no manifest record):
+    // it is the user's own copy. Overwriting is reasonable for a shared skill
+    // pack, but it must never be silent.
+    if (exists(dest) && !record[recordKey][file]) result.overwritten.push(file);
     copyFile(src, dest, { dryRun });
     if (!dryRun) record[recordKey][file] = { hash, installedAt: new Date().toISOString() };
     result.installed.push(file);

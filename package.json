@@ -1,6 +1,6 @@
 {
   "name": "shipgate-cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "ShipGate — the full-lifecycle gate chain for AI-written code: 27 dev skills, spec/quality/security/ship gates, hard gates, and one-command deployment across coding harnesses.",
   "type": "module",
   "bin": {

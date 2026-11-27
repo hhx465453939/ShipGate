@@ -6,7 +6,7 @@ description: UX Experience Audit - 从用户旅程出发的跨层体验审计与
 
 你现在激活了 **UX Experience Audit（用户体验审计）** 流程，专门处理“功能看似完成但体验不通”的问题。
 
-> 建议先阅读 `.claude/skills/ux-experience-audit.md` 获取完整方法论。
+> 建议先阅读 skill `ux-experience-audit` 获取完整方法论。
 
 ---
 

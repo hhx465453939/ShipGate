@@ -65,11 +65,14 @@ export function runQualityGate({ cwd = process.cwd(), target = '.', min = 80, ti
     const hint = failedEngines.includes('lint')
       ? 'lint 引擎跑不起来：先运行 `aislop doctor`；若是 oxlint 二进制与 CPU 指令集不兼容（无 AVX2 的老 CPU 会 SIGILL），在项目 .aislop/config.yml 里设 engines.lint: false，或换到 CI 机器跑'
       : '先运行 `aislop doctor` 看哪个引擎失败，再决定禁用该引擎或补依赖';
+    // Not the code's fault: the engine never ran. Report as environment gap (3)
+    // so CI distinguishes "fix your code" from "fix this machine". It is still
+    // non-zero — an unrunnable scan must never read as green.
     return {
       gate: 'quality',
       ok: false,
-      code: 1,
-      summary: `扫描未取得分数（label=${data.label ?? 'unknown'}，失败引擎：${failedEngines.join(', ') || '未知'}）——按不通过处理`,
+      code: 3,
+      summary: `无法评分（引擎未跑起来：${failedEngines.join(', ') || '未知'}）——环境问题，不是代码问题`,
       findings: errors.slice(0, 20),
       evidence: { score: data.score ?? null, failedEngines, coverage: data.coverage, hint },
     };

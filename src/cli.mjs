@@ -77,7 +77,7 @@ ${c.bold('受管与升级')}
   shipgate adopt <id>                 纳入受管      shipgate revoke <id>   撤回并恢复备份
   shipgate rollback <id>              最近备份回滚  shipgate update [--check]
 
-${c.bold('harness')}  claude · pi · codex · gemini · cursor · 自定义（~/.config/shipgate/config.json）
+${c.bold('harness')}  claude · pi · codex · gemini · cursor · dsh · 自定义（~/.config/shipgate/config.json）
 ${c.bold('文档')}     https://github.com/hhx465453939/ShipGate`);
   return 0;
 }
@@ -111,7 +111,6 @@ export async function main(argv) {
   };
 
   if (!flags.json && name !== 'update') await printUpdateHint();
-
   const code = await command(ctx);
   return typeof code === 'number' ? code : 0;
 }

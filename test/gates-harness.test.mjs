@@ -20,7 +20,7 @@ test('mergePolicy：无既有文件时直接用全局', () => {
   assert.deepEqual(merged.config.protected_worktrees, ['/x']);
 });
 
-test('claude 有 skills/commands/agents，pi 有硬门控', () => {
+test('claude 有 skills/commands/agents；pi 有硬门控与 prompts 命令', () => {
   const claude = resolveHarness(allHarnesses(DEFAULTS).find((h) => h.id === 'claude'));
   const claudeCaps = capabilities(claude);
   assert.equal(claudeCaps.commands, true);
@@ -28,27 +28,37 @@ test('claude 有 skills/commands/agents，pi 有硬门控', () => {
   assert.equal(claudeCaps.gate, false);
 
   const pi = resolveHarness(allHarnesses(DEFAULTS).find((h) => h.id === 'pi'));
-  assert.equal(capabilities(pi).gate, true);
-  assert.equal(capabilities(pi).commands, false);
+  const piCaps = capabilities(pi);
+  assert.equal(piCaps.gate, true);
+  assert.equal(piCaps.commands, true, 'pi 的 ~/.pi/agent/prompts 可直接复用 commands');
+  assert.equal(piCaps.agents, false, 'pi 没有 subagent 目录');
+  assert.equal(pi.commandsPath.endsWith('/.pi/agent/prompts'), true);
+});
+
+test('内置 dsh 带 dsh 适配的硬门控', () => {
+  const dsh = resolveHarness(allHarnesses(DEFAULTS).find((h) => h.id === 'dsh'));
+  assert.ok(dsh, '应存在内置 dsh profile');
+  assert.equal(capabilities(dsh).gate, true);
+  assert.equal(dsh.gate.kind, 'dsh');
 });
 
 test('自定义 harness 可带 commands/agents/gate', () => {
   const cfg = mergeConfig(DEFAULTS, {
     custom: {
-      dsh: {
-        label: 'DSH',
-        skills: '~/.dsh/skills',
-        commands: '~/.dsh/commands',
-        inject: '~/.dsh/AGENTS.md',
-        gate: { dest: '~/.dsh/extensions/enforce-rules', kind: 'dsh' },
+      myagent: {
+        label: 'My Agent',
+        skills: '~/.myagent/skills',
+        commands: '~/.myagent/commands',
+        inject: '~/.myagent/AGENTS.md',
+        gate: { dest: '~/.myagent/extensions/enforce-rules', kind: 'dsh' },
       },
     },
   });
-  const dsh = resolveHarness(allHarnesses(cfg).find((h) => h.id === 'dsh'));
-  const caps = capabilities(dsh);
+  const mine = resolveHarness(allHarnesses(cfg).find((h) => h.id === 'myagent'));
+  const caps = capabilities(mine);
   assert.equal(caps.commands, true);
   assert.equal(caps.gate, true);
-  assert.equal(dsh.gate.kind, 'dsh');
+  assert.equal(mine.gate.kind, 'dsh');
 });
 
 test('非 TTY 时 askSelection 直接返回全部，不挂起', async () => {
