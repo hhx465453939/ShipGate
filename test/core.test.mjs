@@ -44,11 +44,26 @@ test('自定义 harness 可解析且无 detect 时视为存在', () => {
   assert.equal(selected.length, 1);
 });
 
-test('harnesses=auto 时默认取全部已探测 harness', () => {
-  const { selected } = selectHarnesses({ cfg: DEFAULTS });
-  const ids = selected.map((h) => h.id);
-  assert.ok(ids.includes('claude'), `实际：${ids.join(',')}`);
-  assert.ok(selected.every((h) => h.detectPath), 'auto 只应包含有探测路径且存在的 harness');
+test('harnesses=auto 只取已探测的 harness（不依赖真实 HOME）', () => {
+  // 原先断言 ids.includes('claude')：本机装了 claude 才绿，CI 干净环境必红。
+  // auto 的真实语义是「只保留 detect 路径存在的项」，用受控的 custom profile 验证即可。
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'shipgate-auto-'));
+  fs.mkdirSync(path.join(home, '.here'), { recursive: true });
+  try {
+    const cfg = mergeConfig(DEFAULTS, {
+      custom: {
+        here: { label: 'Here', skills: path.join(home, '.here', 'skills'), detect: path.join(home, '.here') },
+        gone: { label: 'Gone', skills: path.join(home, '.gone', 'skills'), detect: path.join(home, '.gone') },
+      },
+    });
+    const { selected } = selectHarnesses({ cfg });
+    const ids = selected.map((h) => h.id);
+    assert.ok(ids.includes('here'), `detect 存在的项应被选中，实际：${ids.join(',') || '（空）'}`);
+    assert.ok(!ids.includes('gone'), `detect 不存在的项不应被选中，实际：${ids.join(',')}`);
+    assert.ok(selected.every((h) => h.detectPath), 'auto 只应包含有探测路径的 harness');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test('checkLatest 网络失败不抛异常', async () => {
