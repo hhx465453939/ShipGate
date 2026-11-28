@@ -34,7 +34,25 @@ approved_at: 2026-11-28
 
 ### 2.2 `release.yml` 的 `publish` 加幂等防护
 
-在真正的 `npm publish` 之前插入一步，用 `package.json` 的 `name` 与 `version` 查 registry：
+在真正的 `npm publish` 之前插入两步：secret 存在性预检 + 版本存在性检查。
+
+```yaml
+      # 发布前先确认 secret 名对得上：名字写错时 token 就是空串，
+      # npm 只会报 ENEEDAUTH，看起来像权限问题。
+      - name: 检查 NPM_TOKEN（secret 名对齐）
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::仓库 secret NPM_TOKEN 为空或不存在（名字必须一字不差是 NPM_TOKEN）"
+            echo "GitHub 不支持给 secret 改名：Settings → Secrets and variables → Actions → New repository secret，Name 填 NPM_TOKEN，重新粘贴 token 值，再删掉旧名字"
+            exit 1
+          fi
+          echo "::notice::已读到 NPM_TOKEN（长度 ${#NODE_AUTH_TOKEN}）"
+```
+
+预检只把 token 传进 env 判空并报长度，不打印值本身。
 
 ```yaml
       - name: 版本是否已发布（幂等）
@@ -83,7 +101,7 @@ approved_at: 2026-11-28
 |---|---|---|
 | M1 | `tasks/CHG-20261128-release-cicd/{PRD,SPEC,TRACEABILITY}.md` | 立契约 |
 | M2 | `.github/workflows/ci.yml` | 新建：verify 矩阵 + quality 闸 |
-| M3 | `.github/workflows/release.yml` | 加幂等检查步骤，publish 条件加 `already == 'false'` |
+| M3 | `.github/workflows/release.yml` | 新增 secret 预检与「版本是否已发布」两步；`npm publish` 条件追加 `steps.published.outputs.already == 'false'` |
 | M4 | `README.md` | 新增「发版与 CI/CD」章节 |
 | M5 | `test/core.test.mjs` | 「auto 只取已探测 harness」用例改成受控 custom profile，去掉对真实 HOME 的依赖 |
 
@@ -97,6 +115,7 @@ approved_at: 2026-11-28
 - **AC-6** `grep -n "NPM_TOKEN" README.md` 命中，且该章节含 tag 发版命令。
 
 - **AC-7** `env HOME=<空目录> node --test test/*.test.mjs` 与正常 HOME 同为 0 失败（CI 等价环境回归）。
+- **AC-8** 发布路径缺 `NPM_TOKEN` 时，job 以 error 级注释失败，注释直接指向 secret 配置路径与「不能改名」这个事实（用 `workflow_dispatch dry_run=false` 且无 token 时实测）。
 
 ## 5. 回滚
 

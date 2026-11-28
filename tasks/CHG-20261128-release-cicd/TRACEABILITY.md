@@ -52,3 +52,13 @@ approved_at: 2026-11-28
 | 修复 | M5：用临时目录造 `here`（detect 存在）/ `gone`（detect 不存在）两个 custom profile，断言 auto 只含 `here`。语义不变（auto = 只保留 detect 存在的项），与环境无关 |
 | 验证 | 正常 HOME 与空 HOME 两个场景各 74 pass / 0 fail；CI 复跑全绿 |
 | 教训 | 断言"本机装了什么"的测试在 CI 上必红；验证探测类逻辑要喂受控输入，不读宿主状态 |
+
+## 5. 真实发布失败与修复（v0.2.1，run 46132387855）
+
+| 项 | 内容 |
+|---|---|
+| 现象 | `publish` 在 `npm publish` 步骤红：`npm error code ENEEDAUTH` / `need auth` |
+| 断言需要证伪的第一个假设 | 以为是 token 权限不足（granular token 没勾 Read and write）。**被否掉**：权限不足应报 `E403`，`ENEEDAUTH` 是"没有任何凭据" |
+| 根因 | `gh secret list` 只有 `NPM20261128`；workflow 读 `secrets.NPM_TOKEN`。名字不匹配 → 该表达式为空串 → setup-node 写进 `.npmrc` 的 `_authToken=${NODE_AUTH_TOKEN}` 成了空值 → npm 认为未登录 |
+| 修复 | 1) 仓库侧：新建 secret `NPM_TOKEN`（GitHub 不支持改名，需重新粘贴值）并删旧名；2) 代码侧：`release.yml` 加 secret 预检，缺 token 时 error 注释直接点名配置路径（AC-8） |
+| 教训 | 凭据类的 `ENEEDAUTH` 先查"名字对不对"，再查"权限够不够"；两者报错码不同（ENEEDAUTH vs E403） |
