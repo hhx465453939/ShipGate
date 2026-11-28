@@ -42,6 +42,7 @@ approved_at: 2026-11-28
 | AC-6 | `grep -n "NPM_TOKEN" README.md` | ✅ 命中 189/191/212/218 行；发版命令 `git tag v… && git push origin v…` 在 234 行 | 2026-11-28 |
 | AC-7 | `env HOME=/tmp/sg-empty-home node --test test/*.test.mjs` | ✅ 74 pass / 0 fail，与正常 HOME 结果一致（修复前该场景必红） | 2026-11-28 |
 | AC-8 | `gh workflow run release -f dry_run=false`（NPM_TOKEN 尚未配置，run 46132822308） | ✅ 第 7 步「检查 NPM_TOKEN（secret 名对齐）」failure，其后 `幂等`/`npm publish` 全部 skipped，未误发；失败注释直接落在该步，文案指向 secret 配置路径与「不支持改名」 | 2026-11-28 |
+| AC-9 | 真实发布（run 46134760764）+ registry 轮询 + `npx --yes shipgate-cli@0.2.1 --help` | ✅ `verify`/`publish` 均 success；约 2 分钟后 `0.2.1` 可下载（HTTP 200，`dist-tags.latest=0.2.1`）；tarball 122 文件 / 27 个 SKILL.md / `bin/shipgate.mjs` 0755；npx 拉下来 `--help` 输出正常 | 2026-11-28 |
 
 ## 4. 首次实跑失败与修复（不掩盖）
 
@@ -80,3 +81,14 @@ approved_at: 2026-11-28
 首次发布成功后，可改用 npm **Trusted Publishing**（OIDC）：在 npm 包设置里绑定 GitHub repo + workflow 文件名，CI 用 `id-token: write` 换短时凭据，既不用长期 token，也不受 2FA 影响。
 
 前置条件：包必须已存在（首次发布仍需 token）；npm CLI ≥ 11.5.1（runner 需先 `npm i -g npm@latest`）。
+
+## 8. 首次真实发布成功（v0.2.1，run 46134760764）
+
+| 项 | 内容 |
+|---|---|
+| 触发 | token 换成「bypass 2FA」后 `gh workflow run release -f dry_run=false` |
+| 结果 | `verify` success + `publish` success；日志 `+ shipgate-cli@0.2.1`、`Your package is being processed and may take a few minutes to become available.` |
+| 中间态 | registry 先只显示 `0.0.0-stage`（2 文件 / 334 B 占位，`dist-tags.latest=0.0.0-stage`），`/shipgate-cli/0.2.1` 返回 404，持续约 2 分钟 |
+| 终态 | 约 2 分钟后 `0.2.1` HTTP 200，`dist-tags.latest=0.2.1`，占位版本消失 |
+| 安装验证 | `npx --yes shipgate-cli@0.2.1 --help` 正常输出；tarball 122 文件、27 个 `SKILL.md`、`bin/shipgate.mjs` 0755 |
+| 教训 | npm 发布是异步的：`+ pkg@ver` 不代表立刻可下载，中间会出现 `0.0.0-stage` 占位。判定「发成功」要看 `/pkg/<version>` 返回 200 与 dist-tags，不能只看 job 颜色 |
