@@ -1,12 +1,6 @@
 import path from 'node:path';
-import { exists } from '../lib/fsx.mjs';
-import { run, which } from '../lib/exec.mjs';
-
-export function resolveAislop(cwd) {
-  const local = path.join(cwd, 'node_modules', '.bin', 'aislop');
-  if (exists(local)) return local;
-  return which('aislop');
-}
+import { run } from '../lib/exec.mjs';
+import { resolveAislop } from '../lib/engines.mjs';
 
 function parseJsonPayload(stdout) {
   const start = stdout.indexOf('{');

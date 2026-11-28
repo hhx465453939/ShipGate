@@ -7,7 +7,8 @@ import { allHarnesses, capabilities, resolveHarness } from '../src/harness/index
 import { DEFAULTS } from '../src/lib/cfg.mjs';
 import { detectLegacyGates } from '../src/lib/gate.mjs';
 import { installSkills, detectFlatSkillDuplicates } from '../src/lib/skills.mjs';
-import { checkEngines, install, reportLegacyGates } from '../src/commands/deploy.mjs';
+import { checkEngines, missingEngineHints } from '../src/lib/engines.mjs';
+import { install, reportLegacyGates } from '../src/commands/deploy.mjs';
 
 function tmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -221,4 +222,18 @@ test('checkEngines：无 pipx 给两步式命令，有 pipx 才给 pipx', () => 
   } finally {
     process.env.PATH = original;
   }
+});
+
+test('missingEngineHints：齐全时为空，缺哪个就只给哪个的命令', () => {
+  const both = {
+    aislop: { bin: '/x/aislop', install: 'npm i -g aislop' },
+    cbh: { bin: '/y/cbh', install: 'pipx install git+https://example/cbh' },
+  };
+  assert.deepEqual(missingEngineHints(both), []);
+
+  const onlyCbhMissing = { ...both, cbh: { bin: null, install: 'git clone … && pip install -i https://pypi.org/simple …' } };
+  const hints = missingEngineHints(onlyCbhMissing);
+  assert.equal(hints.length, 1);
+  assert.equal(hints[0].name, 'cbh');
+  assert.match(hints[0].install, /pypi\.org\/simple/);
 });

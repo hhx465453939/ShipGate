@@ -1,8 +1,8 @@
 import { c, log, table } from '../lib/log.mjs';
 import { runSpecGate } from '../gates/spec.mjs';
-import { runQualityGate, resolveAislop } from '../gates/quality.mjs';
+import { runQualityGate } from '../gates/quality.mjs';
 import { runSecurityGate } from '../gates/security.mjs';
-import { which } from '../lib/exec.mjs';
+import { checkEngines, missingEngineHints } from '../lib/engines.mjs';
 
 const GATE_ROWS = [
   ['spec', '任何代码改动之前', 'shipgate spec check', '内置（CHG 三件套）'],
@@ -12,21 +12,38 @@ const GATE_ROWS = [
 ];
 
 export function listGates(ctx) {
-  const engines = {
-    aislop: Boolean(resolveAislop(ctx.cwd)),
-    cbh: Boolean(which('cbh')),
-  };
+  const engines = checkEngines(ctx);
+  // Only the engines that are really absent get a hint. The old code printed
+  // "缺失引擎：…" unconditionally, so `shipgate gates` said `ok ok` and then
+  // told the operator to install both.
+  const missing = missingEngineHints(engines);
+  const withOk = Object.fromEntries(
+    Object.entries(engines).map(([name, info]) => [name, { ...info, ok: Boolean(info.bin) }]),
+  );
 
   if (ctx.flags.json) {
-    log.plain(JSON.stringify({ gates: GATE_ROWS.map(([gate, when, command, engine]) => ({ gate, when, command, engine })), engines }, null, 2));
+    log.plain(
+      JSON.stringify(
+        { gates: GATE_ROWS.map(([gate, when, command, engine]) => ({ gate, when, command, engine })), engines: withOk },
+        null,
+        2,
+      ),
+    );
     return 0;
   }
 
   log.title('ShipGate 四道闸');
   log.plain(table(GATE_ROWS, ['gate', '什么时候过', '命令', '引擎']));
   log.title('引擎');
-  log.plain(`aislop ${engines.aislop ? c.green('ok') : c.red('missing')}   cbh ${engines.cbh ? c.green('ok') : c.red('missing')}`);
-  log.info(c.dim('缺失引擎：npm i -g aislop  /  pipx install git+https://github.com/elementalsouls/Claude-BugHunter'));
+  log.plain(
+    Object.entries(engines)
+      .map(([name, info]) => `${name} ${info.bin ? c.green('ok') : c.red('missing')}`)
+      .join('   '),
+  );
+  if (missing.length > 0) {
+    log.info('缺失引擎：');
+    for (const item of missing) log.info(`  ${item.name} → ${item.install}`);
+  }
   return 0;
 }
 
