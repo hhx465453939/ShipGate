@@ -63,3 +63,20 @@ approved_at: 2026-11-28
 | 根因 | `gh secret list` 只有 `NPM20261128`；workflow 读 `secrets.NPM_TOKEN`。名字不匹配 → 该表达式为空串 → setup-node 写进 `.npmrc` 的 `_authToken=${NODE_AUTH_TOKEN}` 成了空值 → npm 认为未登录 |
 | 修复 | 1) 仓库侧：新建 secret `NPM_TOKEN`（GitHub 不支持改名，需重新粘贴值）并删旧名；2) 代码侧：`release.yml` 加 secret 预检，缺 token 时 error 注释直接点名配置路径（AC-8） |
 | 教训 | 凭据类的 `ENEEDAUTH` 先查"名字对不对"，再查"权限够不够"；两者报错码不同（ENEEDAUTH vs E403） |
+
+## 6. 真实发布失败二轮（v0.2.1，run 46134527553）：EOTP
+
+| 项 | 内容 |
+|---|---|
+| 现象 | secret 改名后 pipeline 走到 `npm publish`，报 `npm error code EOTP` / `This operation requires a one-time password` |
+| 已排除的假设 | 名字错 / 值空 / 权限不足。**均被否掉**：第 7 步「检查 NPM_TOKEN」success（日志 `NODE_AUTH_TOKEN: ***` 有值），第 8 步幂等 success → token 名与值都已落地 |
+| 根因 | npm 账号开了 2FA，而所用 token 没有「免 2FA 写操作」授权。CI 无人输入 OTP，这类 token 永远发不出去 |
+| 修法（写进 README 排错口径，commit `0b9f571`） | ① Classic 类型选 **Automation**（天然免 OTP）；② Granular 类型创建页取消勾选 `Require two-factor authentication for write actions` |
+| 为什么不改代码 | OTP 是账号级安全策略，CI 侧无法也不应绕过；代码侧只负责可读报错（已做） |
+| 教训 | 三类凭据错误必须分开：`ENEEDAUTH` = 名字/值没到位；`E403` = 权限不足；`EOTP` = 认证过了但被 2FA 拦 |
+
+## 7. 后续可选（不在本 CHG 范围）
+
+首次发布成功后，可改用 npm **Trusted Publishing**（OIDC）：在 npm 包设置里绑定 GitHub repo + workflow 文件名，CI 用 `id-token: write` 换短时凭据，既不用长期 token，也不受 2FA 影响。
+
+前置条件：包必须已存在（首次发布仍需 token）；npm CLI ≥ 11.5.1（runner 需先 `npm i -g npm@latest`）。
