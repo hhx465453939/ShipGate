@@ -34,7 +34,7 @@
 ### 门控分级（重要，别误判）
 
 - **硬拦截**（进程级）：`pi`、`dsh` 等自由度高的 harness —— 装了 `enforce-rules` 扩展，破坏性命令、跳层直读会被真的拦下。
-- **软约束**（靠 skill + 本文档）：`claude`、`codex`、`gemini`、`cursor` —— 这些 harness 没有对应 hook 面，ShipGate 不会假装它们有硬门控；改代码质量靠 `shipgate quality` 可验证。
+- **软约束**（靠 skill + 本文档）：`claude`、`codex`、`gemini`、`cursor`、`kimi`、`antigravity` —— 这些 harness 没有对应 hook 面，ShipGate 不会假装它们有硬门控；改代码质量靠 `shipgate quality` 可验证。
 
 ### 硬门控策略（仅 pi / dsh 生效）
 

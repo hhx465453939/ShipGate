@@ -89,9 +89,12 @@ pipx install git+https://github.com/elementalsouls/Claude-BugHunter  # security 
 | Codex CLI | ✓ | — | — | `AGENTS.md` | 软约束 |
 | Gemini CLI | ✓ | — | — | `GEMINI.md` | 软约束 |
 | Cursor | — | — | — | `rules/shipgate.mdc` | 软约束 |
+| Kimi Code | ✓ | — | — | `AGENTS.md` | 软约束 |
+| Antigravity | ✓（`~/.gemini/antigravity/skills`） | — | — | —（全局规则路径未验证） | 软约束 |
+| ZCode | 未纳入 | — | — | — | （GUI IDE，本机未装，自有内核） |
 | 自定义（dsh 等） | 配置 | 配置 | 配置 | 配置 | 可选硬拦截 |
 
-**说清楚**：只有自由度高的 harness（pi / dsh）能装进程级硬门控——破坏性命令、跳层直读会被真的拦下。Claude Code / Codex / Gemini / Cursor 没有对应的 hook 面，ShipGate 给它们 skill + 注入，不假装有硬门控。
+**说清楚**：只有自由度高的 harness（pi / dsh）能装进程级硬门控——破坏性命令、跳层直读会被真的拦下。Claude Code / Codex / Gemini / Cursor / Kimi / Antigravity 没有对应的 hook 面，ShipGate 给它们 skill + 注入，不假装有硬门控。
 
 接新 agent 不改代码：
 

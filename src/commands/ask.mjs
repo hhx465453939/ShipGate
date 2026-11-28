@@ -64,7 +64,10 @@ export function printPlan(harnesses, cfg) {
   log.title('将写入以下位置');
   for (const harness of harnesses) {
     const lines = [];
-    if (harness.skillsPath) lines.push(`skills   → ${harness.skillsPath}`);
+    if (harness.skillsPath) {
+      const link = harness.skillsFollowed ? `（跟随链接 ${harness.skillsDeclaredPath}）` : '';
+      lines.push(`skills   → ${harness.skillsPath}${link}`);
+    }
     if (harness.commandsPath) lines.push(`commands → ${harness.commandsPath}`);
     if (harness.agentsPath) lines.push(`agents   → ${harness.agentsPath}`);
     if (harness.injectPath) lines.push(`注入     → ${harness.injectPath}`);

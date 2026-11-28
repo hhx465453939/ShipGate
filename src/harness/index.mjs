@@ -1,5 +1,5 @@
 import { expand } from '../lib/cfg.mjs';
-import { exists } from '../lib/fsx.mjs';
+import { exists, isSymlink, realpathOrNull } from '../lib/fsx.mjs';
 
 /**
  * Built-in harness profiles: what each agent can actually consume.
@@ -37,7 +37,12 @@ export const BUILTIN = [
     id: 'dsh',
     label: 'dsh',
     detect: '~/.dsh',
-    skills: '~/.dsh/skills',
+    // dsh's native user skill root is ~/.agents/skills (same one pi reads), not
+    // ~/.dsh/skills. Verified against dsh 0.2.2-rc.3 in
+    // agent-config-bridge/bridge/targets/dsh.json: "~/.agents/skills is a native
+    // user skill root ... the same link pi uses is enough". Writing to
+    // ~/.dsh/skills left the skills unread for a dsh-only user.
+    skills: '~/.agents/skills',
     commands: null,
     agents: null,
     inject: '~/.dsh/AGENTS.md',
@@ -73,7 +78,50 @@ export const BUILTIN = [
     inject: '~/.cursor/rules/shipgate.mdc',
     gate: null,
   },
+  {
+    id: 'kimi',
+    label: 'Kimi Code',
+    detect: '~/.kimi-code',
+    skills: '~/.kimi-code/skills',
+    // Kimi's own Claude-importer docs state that Claude custom commands are
+    // out of scope: there is no destination, so commands stay null instead of
+    // inventing one.
+    commands: null,
+    agents: null,
+    inject: '~/.kimi-code/AGENTS.md',
+    gate: null,
+  },
+  {
+    id: 'antigravity',
+    label: 'Antigravity',
+    detect: '~/.antigravity',
+    // Agent Skills open standard: the global user-scope root is under .gemini,
+    // NOT ~/.antigravity (which only holds the IDE's own settings.json).
+    skills: '~/.gemini/antigravity/skills',
+    commands: null,
+    agents: null,
+    // Global rules-doc path for Antigravity is unverified; distributing skills
+    // only is honest, inventing an inject target would not be.
+    inject: null,
+    gate: null,
+  },
 ];
+
+/**
+ * Resolve a declared skills path through a symlink/junction. `~/.agents/skills`
+ * is a link to ~/.claude/skills on this machine, created and owned by
+ * agent-config-bridge. ShipGate copies skills; writing through the link keeps
+ * exactly one copy shared by claude / pi / dsh. A broken link is reported as
+ * broken instead of being silently replaced (creating the link is bridge's job).
+ */
+function resolveSkillsPath(declaredPath) {
+  if (!declaredPath) return { path: null, declared: null, followed: false, broken: false };
+  const declared = expand(declaredPath);
+  if (!isSymlink(declared)) return { path: declared, declared, followed: false, broken: false };
+  const real = realpathOrNull(declared);
+  if (!real) return { path: declared, declared, followed: true, broken: true };
+  return { path: real, declared, followed: true, broken: false };
+}
 
 export function allHarnesses(cfg) {
   const custom = Object.entries(cfg.custom ?? {}).map(([id, value]) => ({
@@ -99,10 +147,14 @@ export function getHarness(id, cfg) {
 }
 
 export function resolveHarness(harness) {
+  const skills = resolveSkillsPath(harness.skills);
   return {
     ...harness,
     detectPath: harness.detect ? expand(harness.detect) : null,
-    skillsPath: harness.skills ? expand(harness.skills) : null,
+    skillsPath: skills.path,
+    skillsDeclaredPath: skills.declared,
+    skillsFollowed: skills.followed,
+    skillsBroken: skills.broken,
     commandsPath: harness.commands ? expand(harness.commands) : null,
     agentsPath: harness.agents ? expand(harness.agents) : null,
     injectPath: harness.inject ? expand(harness.inject) : null,

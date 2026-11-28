@@ -24,6 +24,28 @@ export function writeText(p, text) {
   fs.writeFileSync(p, text);
 }
 
+/**
+ * Symlink and junction detection. On Windows a directory junction reports
+ * isSymbolicLink() === true, which is what we want: `~/.agents/skills` is a
+ * link either way and writing through it must be recognised, not treated as a
+ * plain directory.
+ */
+export function isSymlink(p) {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+export function realpathOrNull(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
 export function listDir(p) {
   if (!exists(p)) return [];
   return fs.readdirSync(p, { withFileTypes: true });

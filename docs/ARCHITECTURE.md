@@ -31,7 +31,9 @@ bin/shipgate.mjs ─► src/cli.mjs（解析 argv、加载配置、分发）
 { id, label, detect, skills, inject, gate }
 ```
 
-`gate` 只有自由度高的 harness 才需要（pi / dsh），指向 `assets/gates/` 里那份 vendored 硬门控产物（classifier / policy 引擎 / pi 与 dsh 两套适配 / profiles）。Claude Code / Codex / Gemini / Cursor 不带 `gate`，靠 skills + 注入文档约束——文档里明确写"软约束"，不假装有硬门控。
+`gate` 只有自由度高的 harness 才需要（pi / dsh），指向 `assets/gates/` 里那份 vendored 硬门控产物（classifier / policy 引擎 / pi 与 dsh 两套适配 / profiles）。Claude Code / Codex / Gemini / Cursor / Kimi / Antigravity 不带 `gate`，靠 skills + 注入文档约束——文档里明确写"软约束"，不假装有硬门控。
+
+技能落点：pi 与 dsh 共用 `~/.agents/skills`（dsh 的原生用户技能根；`~/.dsh/skills` 不是，写那里会变成 dsh 读不到的死代码），Antigravity 用 `~/.gemini/antigravity/skills`，其余见 `docs/HARNESS.md` 的矩阵。
 
 ## 3.5 技能包
 

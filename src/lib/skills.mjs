@@ -41,6 +41,28 @@ export function listAgentNames() {
     .sort();
 }
 
+/**
+ * Legacy installs copied a skill as a flat `<name>.md`; the current layout is
+ * `<name>/SKILL.md`. When both exist, the same skill `name:` is declared twice —
+ * harnesses then load it twice or pick a stale copy, and which one wins is not
+ * something the user can see. Report it; never delete (the flat file may be the
+ * user's own hand-written copy).
+ */
+export function detectFlatSkillDuplicates(dir) {
+  if (!dir) return [];
+  const entries = listDir(dir);
+  const dirSkillNames = new Set(
+    entries
+      .filter((entry) => entry.isDirectory() && exists(path.join(dir, entry.name, 'SKILL.md')))
+      .map((entry) => entry.name),
+  );
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => entry.name.slice(0, -3))
+    .filter((name) => dirSkillNames.has(name))
+    .sort();
+}
+
 function copyFile(src, dest, { dryRun }) {
   if (dryRun) return;
   fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -79,6 +101,15 @@ function installFileSet(files, srcDir, destDir, recordKey, record, { dryRun }) {
 export function installSkills(harness, record, { dryRun = false } = {}) {
   const result = { installed: [], skipped: [] };
   if (!harness.skillsPath) return result;
+  // A link whose target is gone cannot be written through. Creating the link is
+  // agent-config-bridge's job, so fail-closed and name the owner instead of
+  // silently replacing the link with a copy (which would fork the skill set).
+  if (harness.skillsBroken) {
+    throw new Error(
+      `skills 链接已断开：${harness.skillsDeclaredPath}（目标不存在）。` +
+        `请在 agent-config-bridge 中重新 adopt ${harness.id} 以重建链接，或先删除该链接再重试。`,
+    );
+  }
   record.skills ??= {};
 
   for (const name of listSkillNames()) {

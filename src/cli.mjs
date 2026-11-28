@@ -57,7 +57,8 @@ ${c.bold('部署（最常用）')}
   shipgate install --yes              非交互：全部已探测 harness
   shipgate install --harness claude,pi
   shipgate install --dry-run          只看将写什么
-  shipgate doctor                     体检：skills / commands / agents / 门控 / 引擎
+  shipgate install --with-goal-mode   额外装 pi 续跑扩展（与 --with-auto-continue 二选一）
+  shipgate doctor                     体检：skills / commands / agents / 门控 / 遗留门控 / 引擎
   shipgate status [--json]            每个 harness 装了什么
 
 ${c.bold('四道闸')}
@@ -77,7 +78,7 @@ ${c.bold('受管与升级')}
   shipgate adopt <id>                 纳入受管      shipgate revoke <id>   撤回并恢复备份
   shipgate rollback <id>              最近备份回滚  shipgate update [--check]
 
-${c.bold('harness')}  claude · pi · codex · gemini · cursor · dsh · 自定义（~/.config/shipgate/config.json）
+${c.bold('harness')}  claude · pi · codex · gemini · cursor · dsh · kimi · antigravity · 自定义（~/.config/shipgate/config.json）
 ${c.bold('文档')}     https://github.com/hhx465453939/ShipGate`);
   return 0;
 }

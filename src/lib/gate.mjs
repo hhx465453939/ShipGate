@@ -2,7 +2,7 @@ import path from 'node:path';
 import { HOME } from './cfg.mjs';
 import { stateDir } from './state.mjs';
 import { packageRoot } from '../version.mjs';
-import { backupOnce, copyTree, exists, readIfExists, writeText } from './fsx.mjs';
+import { backupOnce, copyTree, exists, listDir, readIfExists, writeText } from './fsx.mjs';
 
 const DEFAULT_POLICY = {
   config: {
@@ -171,5 +171,76 @@ export function gateStatus(harness) {
     dir: harness.gateDest,
     mode: policy?.config?.destructive_mode ?? 'unknown',
     protected: policy?.config?.protected_worktrees?.length ?? 0,
+  };
+}
+
+/**
+ * Scan dsh Cordis patch files for the gate row actually composed into the
+ * runtime. dsh does not auto-load an extensions directory: whatever the patch
+ * points at is what runs, so "installed" alone does not mean "in effect".
+ */
+function scanDshMounts(profilesDir) {
+  const mounted = [];
+  for (const entry of listDir(profilesDir)) {
+    if (!entry.isDirectory()) continue;
+    const patch = path.join(profilesDir, entry.name, 'cordis.patch.yml');
+    const text = readIfExists(patch);
+    if (!text) continue;
+    for (const line of text.split(/\r?\n/)) {
+      if (!/^\s*name\s*:/.test(line)) continue;
+      if (/enforce-rules/.test(line)) mounted.push('enforce-rules');
+      else if (/agent-config-gates/.test(line)) mounted.push('agent-config-gates');
+      else if (/coding-gateways/.test(line)) mounted.push('coding-gateways');
+    }
+  }
+  return [...new Set(mounted)];
+}
+
+/**
+ * A directory only counts as a gate if it carries the engine. Without this
+ * check, any unrelated extension (e.g. a provider gateway that happens to live
+ * in the same folder) is mistaken for a second gate — and the operator is told
+ * to move an extension whose removal would break their model access.
+ */
+function isGateBundle(dir) {
+  return exists(path.join(dir, 'policy.js')) || exists(path.join(dir, 'classifier.js'));
+}
+
+function otherGateBundles(extensionsDir, ownName) {
+  return listDir(extensionsDir)
+    .filter((entry) => entry.isDirectory() && entry.name !== ownName)
+    .map((entry) => path.join(extensionsDir, entry.name))
+    .filter(isGateBundle);
+}
+
+/**
+ * Detect gate artefacts from agent-config-bridge that would run alongside
+ * ShipGate's own bundle. This is a report-only probe: deleting another
+ * project's files is never automatic. The caller prints the findings and hands
+ * over an explicit command.
+ */
+export function detectLegacyGates({ home = HOME } = {}) {
+  const piExtDir = path.join(home, '.pi', 'agent', 'extensions');
+  const shipGatePi = path.join(piExtDir, 'enforce-rules');
+  // bridge's pi gate used install_as "enforce-rules" — the SAME directory
+  // ShipGate uses. A second pi gate therefore only exists if some OTHER folder
+  // holds a real gate bundle; a plain provider extension must not match.
+  const rivalGates = exists(shipGatePi) ? otherGateBundles(piExtDir, 'enforce-rules') : [];
+  const dshGate = path.join(home, '.dsh', 'plugins', 'agent-config-gates');
+  const bridgePolicy = path.join(home, '.config', 'agent-config-bridge', 'gate-policy.json');
+
+  const bridgePolicyMode = (() => {
+    const parsed = readJson(bridgePolicy);
+    return parsed && !parsed.__malformed ? (parsed.config?.destructive_mode ?? 'unknown') : 'unknown';
+  })();
+
+  return {
+    bridgePiGate: rivalGates[0] ?? null,
+    rivalGates,
+    shipGatePi: exists(shipGatePi) ? shipGatePi : null,
+    bridgeDshGate: exists(dshGate) && isGateBundle(dshGate) ? dshGate : null,
+    bridgePolicy: exists(bridgePolicy) ? bridgePolicy : null,
+    bridgePolicyMode,
+    dshMounted: scanDshMounts(path.join(home, '.dsh', 'profiles')),
   };
 }

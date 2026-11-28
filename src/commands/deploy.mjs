@@ -1,12 +1,13 @@
+import fs from 'node:fs';
 import path from 'node:path';
-import { VERSION } from '../version.mjs';
+import { VERSION, packageRoot } from '../version.mjs';
 import { c, log, table } from '../lib/log.mjs';
 import { backupOnce, earliestBackup, exists, latestBackup, readIfExists, writeText } from '../lib/fsx.mjs';
 import { ensureHarnessRecord, harnessRecord, loadManifest, saveManifest } from '../lib/state.mjs';
 import { allHarnesses, capabilities, detected, getHarness, resolveHarness, selectHarnesses } from '../harness/index.mjs';
-import { installAgents, installCommands, installSkills, listSkillNames, pruneSkills, skillsSource } from '../lib/skills.mjs';
+import { installAgents, installCommands, installSkills, listSkillNames, pruneSkills, skillsSource, detectFlatSkillDuplicates } from '../lib/skills.mjs';
 import { blockVersion, cursorFrontmatter, renderBlock, upsertBlock } from '../inject/render.mjs';
-import { gateStatus, installGateBundle, loadPolicy, syncPolicyToHarnesses } from '../lib/gate.mjs';
+import { gateStatus, installGateBundle, loadPolicy, syncPolicyToHarnesses, detectLegacyGates } from '../lib/gate.mjs';
 import { resolveAislop } from '../gates/quality.mjs';
 import { runShipGate } from '../gates/ship.mjs';
 import { run, version as toolVersion, which } from '../lib/exec.mjs';
@@ -70,6 +71,101 @@ export function installOne(ctx, harness, manifest) {
   if (harness.gateDest) log.ok(`  硬门控 → ${harness.gateDest}（${gate.kind} 适配，policy 已合并）`);
   if (inject.action !== 'none') log.ok(`  注入 → ${harness.injectPath} [${inject.action}]`);
   for (const name of pruned) log.info(`  ${c.dim(`已清理旧 skill ${name}`)}`);
+}
+
+const PI_EXTENSIONS = {
+  'goal-mode': 'goal-mode.ts',
+  'auto-continue': 'auto-continue.ts',
+};
+
+/**
+ * Opt-in continuation extensions for pi. Deliberately outside the default
+ * install path: they change how long an agent keeps running, which is a runtime
+ * policy the operator must ask for, not something a skill pack turns on.
+ */
+function installPiExtension(ctx, name, { dryRun }) {
+  const pi = resolveHarness(getHarness('pi', ctx.cfg));
+  if (!detected(pi)) {
+    log.warn(`--with-${name}：未探测到 pi（${pi.detectPath ?? '无探测路径'}），跳过`);
+    return { action: 'skipped' };
+  }
+  const src = path.join(packageRoot(), 'assets', 'pi-extensions', PI_EXTENSIONS[name]);
+  if (!exists(src)) {
+    log.err(`续跑扩展源码缺失：${src}`);
+    return { action: 'missing-source' };
+  }
+  const destDir = path.join(pi.detectPath, 'agent', 'extensions');
+  const dest = path.join(destDir, PI_EXTENSIONS[name]);
+  if (exists(dest)) {
+    if (!dryRun) backupOnce(dest);
+    log.warn(`${dest} 已存在，已备份为 *.shipgate-bak.* 后覆盖`);
+  }
+  if (!dryRun) {
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(src, dest);
+  }
+  log.ok(`续跑扩展 → ${dest}${dryRun ? '（dry-run，不写盘）' : ''}`);
+  return { action: dryRun ? 'would-install' : 'installed', dest };
+}
+
+/**
+ * Platform-correct move instruction. The operator's shell decides the syntax:
+ * printing `mv` to a PowerShell user (or `Move-Item` to bash) turns a fix into a
+ * second failure, which already happened once.
+ */
+function moveCommand(from, to) {
+  return process.platform === 'win32' ? `Move-Item "${from}" "${to}"` : `mv "${from}" "${to}"`;
+}
+
+function moveIntoDirCommand(from, dir) {
+  return process.platform === 'win32'
+    ? `New-Item -ItemType Directory -Force "${dir}" | Out-Null; Move-Item "${from}" "${dir}"`
+    : `mkdir -p "${dir}" && mv "${from}" "${dir}"`;
+}
+
+/**
+ * Report-only: gate artefacts left by agent-config-bridge would load alongside
+ * ShipGate's bundle. Never deleted automatically — the operator gets the exact
+ * command and decides.
+ */
+export function reportLegacyGates(home) {
+  const legacy = detectLegacyGates(home ? { home } : {});
+  const findings = [];
+  if (legacy.bridgePiGate && legacy.shipGatePi) {
+    // pi auto-discovers every subdirectory with index.js under extensions/.
+    // Renaming to "*.disabled" *inside* that folder still loads it, so the only
+    // correct instruction moves it to a sibling directory pi never scans.
+    const quarantineDir = path.join(path.dirname(path.dirname(legacy.bridgePiGate)), 'extensions-disabled');
+    findings.push({
+      code: 'LEGACY_GATE_DUPLICATE',
+      level: 'warn',
+      message: `pi 同时存在两份门控：${legacy.bridgePiGate}（bridge）与 ${legacy.shipGatePi}（ShipGate）`,
+      command: moveIntoDirCommand(legacy.bridgePiGate, quarantineDir),
+    });
+  }
+  if (legacy.bridgePolicy) {
+    const shipMode = loadPolicy().config.destructive_mode;
+    const sameMode = legacy.bridgePolicyMode === shipMode;
+    findings.push({
+      code: 'LEGACY_POLICY_SOURCE',
+      // Same mode = no behavioural conflict, only clutter. Warning every run
+      // trains the operator to ignore warnings.
+      level: sameMode ? 'info' : 'warn',
+      message: sameMode
+        ? `bridge 的第二份 policy 仍在（${legacy.bridgePolicy}，mode=${legacy.bridgePolicyMode} 与 ShipGate 相同，已不影响行为；仅建议清理）`
+        : `第二份 policy 真源：${legacy.bridgePolicy}（${legacy.bridgePolicyMode}），ShipGate（${shipMode}）—— 两者不一致时拦截行为取决于加载顺序`,
+      command: moveCommand(legacy.bridgePolicy, `${legacy.bridgePolicy}.disabled`),
+    });
+  }
+  if (legacy.dshMounted.length > 0 && !legacy.dshMounted.includes('enforce-rules')) {
+    findings.push({
+      code: 'DSH_GATE_MISMOUNT',
+      level: 'warn',
+      message: `dsh 挂载的是 ${legacy.dshMounted.join(', ')}，不是 ShipGate 的 enforce-rules`,
+      command: null,
+    });
+  }
+  return findings;
 }
 
 export function checkEngines(ctx) {
@@ -181,6 +277,52 @@ export async function doctor(ctx) {
   if (gated.length) log.info(`  ${c.yellow('硬拦截')}：${gated.join(', ')}`);
   if (gatedNotInstalled.length) log.info(`  ${c.dim(`支持硬门控但未安装：${gatedNotInstalled.join(', ')}`)}`);
   if (soft.length) log.info(`  ${c.dim(`软约束：${soft.join(', ')}（skills + 注入，无进程级拦截）`)}`);
+  // zcode is deliberately not built in: a GUI IDE with its own agent kernel, and
+  // no ~/.zcode on this machine. Say so rather than silently omitting it.
+  log.info(
+    `  ${c.dim('未纳入：zcode（智谱 GUI IDE，自有内核；未探测到 ~/.zcode；出现 ~/.zcode/skills 时用 custom 接入）')}`,
+  );
+
+  // Flat `<name>.md` next to `<name>/SKILL.md` declares the same skill twice.
+  // Several harnesses can share one physical skills dir (pi and dsh both read
+  // ~/.agents/skills), so dedupe by real path — otherwise the same 19 files get
+  // reported three times and the operator stops reading the warning.
+  const flatDupes = new Map();
+  for (const harness of harnesses) {
+    if (!harness.skillsPath || !fs.existsSync(harness.skillsPath)) continue;
+    const real = fs.realpathSync(harness.skillsPath);
+    const dup = detectFlatSkillDuplicates(real);
+    if (!dup.length) continue;
+    const entry = flatDupes.get(real) ?? { dir: real, harnesses: [], names: dup };
+    entry.harnesses.push(harness.id);
+    flatDupes.set(real, entry);
+  }
+  if (flatDupes.size) {
+    log.title('扁平 skill 重复（只报告，不自动删）');
+    for (const item of flatDupes.values()) {
+      log.warn(`  FLAT_SKILL_DUPLICATE：${item.dir} 有 ${item.names.length} 个扁平 .md 与同名目录并存（被 ${item.harnesses.join(', ')} 共用）`);
+      log.info(`    同名：${item.names.slice(0, 8).join(', ')}${item.names.length > 8 ? ' …' : ''}`);
+      const backup = path.join(item.dir, '_flat-backup');
+      if (process.platform === 'win32') {
+        log.info(`    ${c.dim(`清理（先备份再移出）：New-Item -ItemType Directory -Force "${backup}" | Out-Null`)}`);
+        log.info(`    ${c.dim(`  Get-ChildItem "${item.dir}" -Filter *.md | Where-Object { $_.BaseName -in @(${item.names.map((n) => `'${n}'`).join(',')}) } | Move-Item -Destination "${backup}"`)}`);
+      } else {
+        log.info(`    ${c.dim(`清理（先备份再移出）：mkdir -p "${backup}"`)}`);
+        log.info(`    ${c.dim(`  mv "${item.dir}"/{${item.names.join(',')}}.md "${backup}"/`)}`);
+      }
+    }
+  }
+
+  const legacy = reportLegacyGates();
+  if (legacy.length > 0) {
+    log.title('遗留门控（只报告，不自动删）');
+    for (const item of legacy) {
+      const line = `  ${item.code}：${item.message}`;
+      if (item.level === 'info') log.info(line);
+      else log.warn(line);
+      if (item.command) log.info(`    ${c.dim(`停用命令：${item.command}`)}`);
+    }
+  }
 
   const managed = harnesses.filter((h) => Object.keys(harnessRecord(manifest, h.id)?.skills ?? {}).length);
   const ship = runShipGate({ harnesses: managed, manifest, skillsSource: skillsSource() });
@@ -193,6 +335,12 @@ export async function doctor(ctx) {
 
 export async function install(ctx) {
   const dryRun = Boolean(ctx.flags['dry-run']);
+  // goal-mode and auto-continue both drive the turn boundary; enabling both
+  // would make the agent fight itself over when to continue.
+  if (ctx.flags['with-goal-mode'] && ctx.flags['with-auto-continue']) {
+    log.err('--with-goal-mode 与 --with-auto-continue 互斥：二选一');
+    return 2;
+  }
   const allDetected = allHarnesses(ctx.cfg).map(resolveHarness).filter(detected);
   let selected = [];
   let missing = [];
@@ -249,6 +397,18 @@ export async function install(ctx) {
   }
 
   if (ctx.flags.hooks && !dryRun) installAislopHooks(ctx, selected);
+
+  if (ctx.flags['with-goal-mode']) installPiExtension(ctx, 'goal-mode', { dryRun });
+  if (ctx.flags['with-auto-continue']) installPiExtension(ctx, 'auto-continue', { dryRun });
+
+  const legacyFindings = reportLegacyGates();
+  if (legacyFindings.length > 0) {
+    log.title('遗留门控提醒（不自动删）');
+    for (const item of legacyFindings) {
+      log.warn(`  ${item.code}：${item.message}`);
+      if (item.command) log.info(`    ${c.dim(`停用命令：${item.command}`)}`);
+    }
+  }
 
   if (!dryRun) await maybeAutoUpdate(ctx);
   else log.info(c.dim('dry-run 结束；去掉 --dry-run 才会写盘'));
