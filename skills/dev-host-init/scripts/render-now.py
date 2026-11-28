@@ -112,7 +112,7 @@ def ssh_aliases():
     cfg = os.path.join(HOME, ".ssh", "config")
     if not os.path.exists(cfg):
         return []
-    out, import_os = [], None
+    out = []
     for line in open(cfg, encoding="utf-8", errors="ignore"):
         m = re.match(r"^\s*Host\s+(\S.*)$", line.strip())
         if m:

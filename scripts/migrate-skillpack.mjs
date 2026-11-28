@@ -41,7 +41,34 @@ function frontmatterIssue(text) {
   if (!match) return 'no-frontmatter';
   if (!/^name\s*:/m.test(match[1])) return 'missing-name';
   if (!/^description\s*:/m.test(match[1])) return 'missing-description';
+  // Presence is not enough: an over-long description or an illegal name loads
+  // with a warning in pi and is rejected by stricter harnesses, so the package
+  // would ship a skill that cannot trigger. Check the values, not the keys.
+  const fields = parseFrontmatter(match[1]);
+  const name = fields.name ?? '';
+  if (!/^[a-z0-9-]+$/.test(name)) return `name 非法（只能用 a-z、0-9、-）：${name}`;
+  if (name.length > 64) return `name 超过 64 字符（${name.length}）`;
+  if (/^-|-$/.test(name) || name.includes('--')) return `name 不能以 - 开头/结尾，也不能含 --：${name}`;
+  const description = fields.description ?? '';
+  if (description.length > 1024) return `description 超过 1024 字符（${description.length}）`;
   return null;
+}
+
+function parseFrontmatter(body) {
+  const fields = {};
+  const lines = body.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const hit = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(lines[i]);
+    if (!hit) continue;
+    let value = hit[2].trim();
+    if (/^[|>][-+]?\d*$/.test(value)) {
+      const block = [];
+      while (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) block.push(lines[++i].trim());
+      value = value.startsWith('|') ? block.join('\n') : block.join(' ');
+    }
+    fields[hit[1]] = value.replace(/^(['"])([\s\S]*)\1$/, '$2');
+  }
+  return fields;
 }
 
 function listMigratedSkills() {

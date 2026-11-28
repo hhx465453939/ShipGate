@@ -5,7 +5,7 @@ import { c, log, table } from '../lib/log.mjs';
 import { backupOnce, earliestBackup, exists, latestBackup, readIfExists, writeText } from '../lib/fsx.mjs';
 import { ensureHarnessRecord, harnessRecord, loadManifest, saveManifest } from '../lib/state.mjs';
 import { allHarnesses, capabilities, detected, getHarness, resolveHarness, selectHarnesses } from '../harness/index.mjs';
-import { installAgents, installCommands, installSkills, listSkillNames, pruneSkills, skillsSource, detectFlatSkillDuplicates } from '../lib/skills.mjs';
+import { installAgents, installCommands, installSkills, listSkillNames, pruneSkills, skillsSource, auditSkillRoot, detectFlatSkillDuplicates, skillsBackupDir } from '../lib/skills.mjs';
 import { blockVersion, cursorFrontmatter, renderBlock, upsertBlock } from '../inject/render.mjs';
 import { gateStatus, installGateBundle, loadPolicy, syncPolicyToHarnesses, detectLegacyGates } from '../lib/gate.mjs';
 import { resolveAislop } from '../gates/quality.mjs';
@@ -283,32 +283,62 @@ export async function doctor(ctx) {
     `  ${c.dim('未纳入：zcode（智谱 GUI IDE，自有内核；未探测到 ~/.zcode；出现 ~/.zcode/skills 时用 custom 接入）')}`,
   );
 
-  // Flat `<name>.md` next to `<name>/SKILL.md` declares the same skill twice.
-  // Several harnesses can share one physical skills dir (pi and dsh both read
-  // ~/.agents/skills), so dedupe by real path — otherwise the same 19 files get
-  // reported three times and the operator stops reading the warning.
-  const flatDupes = new Map();
+  // Skill roots are shared, not per-harness: pi and dsh both read
+  // ~/.agents/skills, which is a link to ~/.claude/skills. Dedupe by real path
+  // so the same defect is reported once, with every sharer named.
+  const roots = new Map();
   for (const harness of harnesses) {
     if (!harness.skillsPath || !fs.existsSync(harness.skillsPath)) continue;
     const real = fs.realpathSync(harness.skillsPath);
-    const dup = detectFlatSkillDuplicates(real);
-    if (!dup.length) continue;
-    const entry = flatDupes.get(real) ?? { dir: real, harnesses: [], names: dup };
-    entry.harnesses.push(harness.id);
-    flatDupes.set(real, entry);
+    const entry = roots.get(real) ?? { dir: real, shared: [] };
+    entry.shared.push(harness.id);
+    roots.set(real, entry);
   }
-  if (flatDupes.size) {
-    log.title('扁平 skill 重复（只报告，不自动删）');
-    for (const item of flatDupes.values()) {
-      log.warn(`  FLAT_SKILL_DUPLICATE：${item.dir} 有 ${item.names.length} 个扁平 .md 与同名目录并存（被 ${item.harnesses.join(', ')} 共用）`);
-      log.info(`    同名：${item.names.slice(0, 8).join(', ')}${item.names.length > 8 ? ' …' : ''}`);
-      const backup = path.join(item.dir, '_flat-backup');
-      if (process.platform === 'win32') {
-        log.info(`    ${c.dim(`清理（先备份再移出）：New-Item -ItemType Directory -Force "${backup}" | Out-Null`)}`);
-        log.info(`    ${c.dim(`  Get-ChildItem "${item.dir}" -Filter *.md | Where-Object { $_.BaseName -in @(${item.names.map((n) => `'${n}'`).join(',')}) } | Move-Item -Destination "${backup}"`)}`);
-      } else {
-        log.info(`    ${c.dim(`清理（先备份再移出）：mkdir -p "${backup}"`)}`);
-        log.info(`    ${c.dim(`  mv "${item.dir}"/{${item.names.join(',')}}.md "${backup}"/`)}`);
+  const hygiene = [];
+  for (const { dir, shared } of roots.values()) {
+    const audit = auditSkillRoot(dir);
+    const flat = detectFlatSkillDuplicates(dir);
+    if (!flat.length && !audit.strayDirs.length && !audit.collisions.length && !audit.invalidNames.length && !audit.longDescriptions.length) {
+      continue;
+    }
+    hygiene.push({ dir, shared, audit, flat });
+  }
+  if (hygiene.length) {
+    log.title('skill 根卫生（只报告，不自动移）');
+    for (const { dir, shared, audit, flat } of hygiene) {
+      log.info(`  ${dir}${shared.length > 1 ? `（被 ${shared.join(', ')} 共用，同一份）` : ''}`);
+      // Flat `<name>.md` next to `<name>/SKILL.md` declares the same skill twice.
+      if (flat.length) {
+        log.warn(`    FLAT_SKILL_DUPLICATE：${flat.length} 个扁平 .md 与同名目录并存`);
+        log.info(`      同名：${flat.slice(0, 8).join(', ')}${flat.length > 8 ? ' …' : ''}`);
+        const backup = skillsBackupDir('skills-flat');
+        const names = flat.map((n) => (process.platform === 'win32' ? `'${n}'` : n)).join(', ');
+        if (process.platform === 'win32') {
+          log.info(`      ${c.dim(`New-Item -ItemType Directory -Force "${backup}" | Out-Null`)}`);
+          log.info(
+            `      ${c.dim(`Get-ChildItem "${dir}" -Filter *.md | Where-Object { $_.BaseName -in @(${names}) } | Move-Item -Destination "${backup}"`)}`,
+          );
+        } else {
+          log.info(`      ${c.dim(`mkdir -p "${backup}" && mv "${dir}"/{${names}}.md "${backup}"/`)}`);
+        }
+      }
+      for (const stray of audit.strayDirs) {
+        log.warn(`    SKILL_STRAY_DIR：${stray.dir} 有 ${stray.mdCount} 个 .md 但没有 SKILL.md`);
+        log.info(`      ${c.dim('一旦这个目录被当成 skill path 传入，其中的 .md 就会变成以目录名命名的 skill')}`);
+        log.info(`      ${c.dim(moveIntoDirCommand(stray.dir, skillsBackupDir('skills-stray')))}`);
+      }
+      for (const item of audit.collisions) {
+        log.warn(`    SKILL_NAME_COLLISION："${item.name}" 被 ${item.losers.length + 1} 个文件声明`);
+        log.info(`      生效：${item.winner}`);
+        for (const loser of item.losers) log.info(`      ${c.dim(`被跳过：${loser}`)}`);
+      }
+      for (const item of audit.invalidNames) {
+        log.warn(`    SKILL_INVALID_NAME：${item.name}（${item.file}）`);
+        log.info(`      ${c.dim(item.messages.join('；'))}`);
+      }
+      for (const item of audit.longDescriptions) {
+        log.warn(`    SKILL_DESCRIPTION_TOO_LONG：${item.file} 的 description 有 ${item.length} 字符`);
+        log.info(`      ${c.dim(`上限 ${1024}；在源 skill 里压短，不要改已分发副本`)}`);
       }
     }
   }

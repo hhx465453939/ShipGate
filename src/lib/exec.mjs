@@ -24,14 +24,39 @@ export function which(cmd) {
   return null;
 }
 
+/**
+ * Node refuses to spawn `.cmd`/`.bat` directly (the CVE-2024-27980 fix returns
+ * EINVAL), and on Windows every npm global shim is a `.cmd`. `which('aislop')`
+ * therefore resolves to a file that can only run through cmd.exe — spawning it
+ * directly made the quality gate unrunnable on this platform (`exit=-1`).
+ *
+ * Each token is quoted on its own: a path with spaces must stay one argument,
+ * and cmd.exe strips the outer pair added here. Arguments containing `"` are
+ * rejected by the caller's contract (no ShipGate call passes one).
+ */
+function cmdShimInvocation(cmd, args) {
+  const quote = (value) => `"${String(value).replace(/"/g, '')}"`;
+  return [cmd, ...args].map(quote).join(' ');
+}
+
 export function run(cmd, args = [], { timeout = 600_000, cwd, env } = {}) {
-  const result = spawnSync(cmd, args, {
+  const options = {
     encoding: 'utf8',
     timeout,
     cwd,
     env: env ? { ...process.env, ...env } : process.env,
     maxBuffer: 64 * 1024 * 1024,
-  });
+  };
+  const isCmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(cmd);
+  // `windowsVerbatimArguments` is load-bearing: without it Node re-quotes the
+  // single command argument and cmd.exe then treats the whole string as the
+  // executable's name. This mirrors what `shell: true` does internally.
+  const result = isCmdShim
+    ? spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${cmdShimInvocation(cmd, args)}"`], {
+        ...options,
+        windowsVerbatimArguments: true,
+      })
+    : spawnSync(cmd, args, options);
   return {
     ok: result.status === 0,
     code: result.status ?? -1,

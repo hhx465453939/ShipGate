@@ -40,9 +40,14 @@ export function runQualityGate({ cwd = process.cwd(), target = '.', min = 80, ti
     };
   }
 
-  // assets/pi-gate is vendored upstream (agent-config-bridge); it is not this
-  // repo's code, so it must not count against this repo's quality score.
-  const excludes = ['assets/pi-gate'];
+  // Vendored upstream trees, not this repo's code: `assets/pi-gate` and
+  // `assets/gates` come from agent-config-bridge, `assets/pi-extensions` from
+  // the same repo's gate extensions. They import packages the pi runtime
+  // provides (`@earendil-works/pi-coding-agent`, `typebox`) and must not be
+  // declared as dependencies here — the zero-dependency rule is exactly why
+  // they are vendored. Scoring them would report the upstream design as our
+  // slop and push someone to fork it.
+  const excludes = ['assets/pi-gate', 'assets/gates', 'assets/pi-extensions'];
   const result = run(bin, ['scan', scanDir, '--json', ...excludes.flatMap((p) => ['--exclude', p])], { timeout });
   const data = parseJsonPayload(result.stdout);
 

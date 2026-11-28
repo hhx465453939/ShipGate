@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { packageRoot } from '../version.mjs';
-import { backupOnce, copyTree, exists, hashFile, listDir, removeDir } from './fsx.mjs';
+import { backupOnce, copyTree, exists, hashFile, listDir, readText, removeDir, today } from './fsx.mjs';
+import { stateDir } from './state.mjs';
+
+/** Agent Skills spec limits — the same thresholds pi enforces on load. */
+export const SKILL_NAME_MAX = 64;
+export const SKILL_DESCRIPTION_MAX = 1024;
+const SKILL_NAME_RE = /^[a-z0-9-]+$/;
 
 export function skillsSource() {
   return path.join(packageRoot(), 'skills');
@@ -61,6 +67,129 @@ export function detectFlatSkillDuplicates(dir) {
     .map((entry) => entry.name.slice(0, -3))
     .filter((name) => dirSkillNames.has(name))
     .sort();
+}
+
+/**
+ * Where a cleanup may park what it moves out of a skills root.
+ *
+ * It must not be a child of the root: every `.md` inside a root is a skill
+ * candidate. When such a directory is loaded as a skill path, pi names each of
+ * its flat files after the parent directory (`name = frontmatter.name ??
+ * parentDirName`), so parking the old flat skills in `<root>/_flat-backup`
+ * re-registers them — and a re-registered flat file collides with, and wins
+ * over, the real `<name>/SKILL.md`. Keeping the backup outside the root makes
+ * that impossible for every harness at once.
+ */
+export function skillsBackupDir(kind, date = today()) {
+  return path.join(stateDir(), 'backups', `${kind}-${date}`);
+}
+
+/**
+ * Frontmatter reader for the two fields the spec constrains. Deliberately
+ * minimal: no dependency, no nested-map support, block scalars (`|`, `>`) are
+ * joined the way a loader would see them so a length check is not fooled by a
+ * wrapped description.
+ */
+export function parseSkillFrontmatter(text) {
+  const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!block) return {};
+  const lines = block[1].split(/\r?\n/);
+  const fields = {};
+  for (let i = 0; i < lines.length; i += 1) {
+    const hit = /^([A-Za-z0-9_-]+):[ \t]*(.*)$/.exec(lines[i]);
+    if (!hit) continue;
+    let value = hit[2].trim();
+    if (/^[|>][-+]?\d*$/.test(value)) {
+      const body = [];
+      while (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) body.push(lines[++i].trim());
+      value = value.startsWith('|') ? body.join('\n') : body.join(' ');
+    }
+    fields[hit[1]] = value.replace(/^(['"])([\s\S]*)\1$/, '$2');
+  }
+  return fields;
+}
+
+/** Same accept/reject rules as the Agent Skills spec, in operator wording. */
+export function validateSkillName(name) {
+  if (typeof name !== 'string' || name === '') return ['name 缺失'];
+  const issues = [];
+  if (name.length > SKILL_NAME_MAX) issues.push(`name 超过 ${SKILL_NAME_MAX} 字符（${name.length}）`);
+  if (!SKILL_NAME_RE.test(name)) issues.push('name 只能含 a-z、0-9、-（当前有其他字符）');
+  if (/^-|-$/.test(name)) issues.push('name 不能以 - 开头或结尾');
+  if (name.includes('--')) issues.push('name 不能含连续 --');
+  return issues;
+}
+
+/**
+ * Audit one skill root the way a loader walks it: a directory holding SKILL.md
+ * is a skill and is not descended into; only the root's *direct* .md children
+ * count as flat skills (that is what `includeRootFiles` means on load); `.`
+ * prefixed entries are skipped. Every finding is report-only.
+ */
+export function auditSkillRoot(root) {
+  const result = { root, skills: 0, invalidNames: [], longDescriptions: [], collisions: [], strayDirs: [] };
+  if (!root || !exists(root)) return result;
+  const claimed = new Map();
+
+  const register = (dir, file) => {
+    const front = parseSkillFrontmatter(readText(file));
+    const declared = path.basename(file) === 'SKILL.md';
+    const name = typeof front.name === 'string' && front.name !== '' ? front.name : path.basename(dir);
+    const description = typeof front.description === 'string' ? front.description.trim() : '';
+    // A flat file without a description is not loaded at all, so it is not a
+    // skill and must not be reported as one.
+    if (!declared && description === '') return;
+    result.skills += 1;
+    const nameIssues = validateSkillName(name);
+    if (nameIssues.length) result.invalidNames.push({ name, file, messages: nameIssues });
+    if (description.length > SKILL_DESCRIPTION_MAX) {
+      result.longDescriptions.push({ file, length: description.length });
+    }
+    const owners = claimed.get(name) ?? [];
+    owners.push(file);
+    claimed.set(name, owners);
+  };
+
+  const walk = (dir, includeFlat) => {
+    const entries = listDir(dir);
+    if (entries.some((entry) => entry.name === 'SKILL.md' && entry.isFile())) {
+      register(dir, path.join(dir, 'SKILL.md'));
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const full = path.join(dir, entry.name);
+      let isDir = entry.isDirectory();
+      if (entry.isSymbolicLink()) {
+        try {
+          isDir = fs.statSync(full).isDirectory();
+        } catch {
+          continue;
+        }
+      }
+      if (isDir) walk(full, false);
+      else if (includeFlat && entry.name.endsWith('.md')) register(dir, full);
+    }
+  };
+
+  walk(root, true);
+
+  for (const [name, owners] of claimed) {
+    if (owners.length > 1) result.collisions.push({ name, winner: owners[0], losers: owners.slice(1) });
+  }
+
+  // A child directory with .md files but no SKILL.md is the shape a backup
+  // folder takes. It is inert until something passes it as a skill path, and
+  // then its files become skills under the directory's name — a silent trap.
+  for (const entry of listDir(root)) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const dir = path.join(root, entry.name);
+    if (exists(path.join(dir, 'SKILL.md'))) continue;
+    const mdCount = listDir(dir).filter((child) => child.isFile() && child.name.endsWith('.md')).length;
+    if (mdCount > 0) result.strayDirs.push({ dir, mdCount });
+  }
+
+  return result;
 }
 
 function copyFile(src, dest, { dryRun }) {

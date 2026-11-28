@@ -199,7 +199,6 @@ def render_install_todo(picks):
         spec = TOOL_INSTALL.get(name, {})
         opts = spec.get(kind, [])
         cmd = next((o["cmd"] for o in opts if o["label"] == label), None)
-        note = spec.get("note", "")
         lines.append(f"### {name} — {label}")
         if cmd:
             lines.append(f"```bash\n{cmd}\n```")

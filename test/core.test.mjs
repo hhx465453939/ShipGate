@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { compareVersions, checkLatest, checkedToday } from '../src/lib/update.mjs';
 import { DEFAULTS, mergeConfig, loadConfig } from '../src/lib/cfg.mjs';
+import { run } from '../src/lib/exec.mjs';
 import { allHarnesses, resolveHarness, selectHarnesses } from '../src/harness/index.mjs';
 
 test('版本比较', () => {
@@ -72,4 +73,18 @@ test('earliestBackup 取最早一份，latestBackup 取最新一份', async () =
   fs.writeFileSync(`${file}.shipgate-bak.2999-01-01`, 'next-day');
   assert.equal(earliestBackup(file), only, 'revoke 必须回到最早那份');
   assert.ok(latestBackup(file).endsWith('2999-01-01'));
+});
+
+// --- exec：Windows .cmd 垫片（CHG-20261128）---
+
+test('run() 能启动 .cmd 垫片，且带空格的参数不被拆开', { skip: process.platform !== 'win32' }, () => {
+  // 每个 npm 全局命令在 Windows 上都是 .cmd；直接 spawnSync 会 EINVAL，
+  // 而 npm 全局安装目录与临时路径都可能含空格，两者都要活下来。
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shipgate shim '));
+  const shim = path.join(dir, 'echo args.cmd');
+  fs.writeFileSync(shim, '@echo off\r\necho %~1\r\necho %~2\r\n');
+  const result = run(shim, ['has space', 'plain'], { timeout: 30_000 });
+  assert.equal(result.code, 0, result.stderr);
+  assert.match(result.stdout, /has space/);
+  assert.match(result.stdout, /plain/);
 });

@@ -103,6 +103,49 @@ shipgate install --with-auto-continue   # 无轮数上限
 | `LEGACY_POLICY_SOURCE` | 存在第二份 policy 真源 `~/.config/agent-config-bridge/gate-policy.json` | 统一到 `~/.config/shipgate/gate-policy.json` |
 | `DSH_GATE_MISMOUNT` | dsh 的 cordis.patch 挂的不是 `enforce-rules` | 改挂接行指向 ShipGate 产物 |
 
+## skill 根卫生（doctor）
+
+skills 根是**共用**资源：`~/.agents/skills` 是 `~/.claude/skills` 的链接，pi / dsh / claude 读的是同一份。往里塞任何非 skill 的东西都会变成 skill，因此有三条约定。
+
+### 约定 1：备份永远落在根外
+
+清理命令的落点是 `~/.config/shipgate/backups/<kind>-<YYYY-MM-DD>/`，**不是** `<skillsRoot>/_flat-backup`。
+
+原因（pi 1.4.0 `dist/core/skills.js` 实读）：
+
+| 加载规则 | 后果 |
+|---|---|
+| `name = frontmatter.name ?? parentDirName` | 备份目录里的 `*.md` 若没有 `name:`，名字变成目录名（`_flat-backup` → 非法字符告警） |
+| 非 `SKILL.md` 文件只要有 `description` 就加载 | 旧版扁平 skill 被重新注册 |
+| 同名后到者 skipped | 被跳过的是**新版目录**，生效的是**旧版扁平文件** —— 静默降级 |
+
+改前实测：`~/.claude/skills/_flat-backup/` 让 pi 报出 21 条 collision + 10 条 warning（10 个真实同名、10 个伪名、1 个 `skills` 伪名）。
+
+### 约定 2：`doctor` 报四类发现
+
+| code | 判据 | 处置 |
+|---|---|---|
+| `FLAT_SKILL_DUPLICATE` | 根内 `<name>.md` 与 `<name>/SKILL.md` 并存 | 给「移到根外备份目录」的命令 |
+| `SKILL_STRAY_DIR` | 根的直接子目录无 `SKILL.md` 但有 `.md` | 同上（这种目录一旦被当 skill path 传入就会产生伪技能） |
+| `SKILL_NAME_COLLISION` | 同一 root 内多个文件声明同一 `name` | 只报告，列出 winner / 被跳过者 |
+| `SKILL_INVALID_NAME` / `SKILL_DESCRIPTION_TOO_LONG` | 不满足 `^[a-z0-9-]+$`、≤64、无 `--`；`description` > 1024 | 只报告，要求在**源 skill** 里改（改分发副本会被下次 install 覆盖） |
+
+全部**只报告不删除**；命令按平台生成（Windows → `Move-Item`，POSIX → `mv`）。同一物理目录被多个 harness 共用时只报一次并列出共用者。
+
+### 约定 3：分发物在出厂前就校验
+
+`node scripts/migrate-skillpack.mjs --check` 与单测同时校验 27 个 skill 的 `name` / `description` 取值，所以超规内容在 CI 就红，不会等 pi 启动才告警。
+
+### 边界：agent-config-bridge 不写 skills 根
+
+核查结论（2026-11-28）：
+
+- `bridge/lib/source.js` 的 `scanSkills` 只认「目录且含 `SKILL.md`」，扁平 `.md` 仅进 `flatDuplicates` 计数，从不桥接；
+- 全仓 `flat-backup` 命中 0；
+- 备份落点是 `backupsDir(repo) = <repo>/.bridge/backups`（`bridge/lib/paths.js`），在 skills 根之外。
+
+因此根目录卫生由 ShipGate 单方面负责：**不往根里塞东西 + 报告根里的问题**。
+
 ## 自定义 harness
 
 ```jsonc
