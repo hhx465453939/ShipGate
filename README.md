@@ -175,6 +175,72 @@ node scripts/migrate-skillpack.mjs --check   # 技能包 frontmatter 体检
 
 改动必须走 `tasks/CHG-<id>/` 契约（本项目自己也要过 spec 闸）。架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，门控细节见 [docs/GATES.md](docs/GATES.md)，harness 适配见 [docs/HARNESS.md](docs/HARNESS.md)。
 
+## 发版与 CI/CD
+
+两条流水线，分工不重叠：
+
+| 流水线 | 文件 | 什么时候跑 | 干什么 |
+|---|---|---|---|
+| `ci` | `.github/workflows/ci.yml` | push 到 main、PR、手动 | node 20/22/24 三版本跑测试 + 技能包体检 + 契约闸；另起一个 job 跑质量闸（aislop 固定版本） |
+| `release` | `.github/workflows/release.yml` | 推 `v*` tag，或手动 dispatch | 先跑同样三件套，再校验 tag 与 `package.json` 版本一致，最后 `npm publish` |
+
+push main **不会**发版：发布开关只有「打 tag」和「手动 dispatch」两个，发布权留在人手上。
+
+### 一次性配置：NPM_TOKEN
+
+`release` 的发布步骤读仓库 secret `NPM_TOKEN`。配一次即可，之后所有发版都走它。
+
+**第 1 步：在 npm 建 token**
+
+1. 登录 <https://www.npmjs.com/> → 右上头像 → **Access Tokens** → **Generate New Token**。
+2. 选 **Granular Access Token**（推荐）：
+   - **Token name**：随便写，例如 `shipgate-github-actions`；
+   - **Expiration**：按需（例如 90 天，到期需换新）；
+   - **Packages and scopes** → 选 **Read and write**；
+   - **Packages** 选 **All packages**（首次发布时包还不存在，无法预先勾选单包；发布后可以收紧成只勾 `shipgate-cli`）；
+   - **Organizations** 不用动；
+   - 建完立刻复制那条 `npm_...` 开头的 token（**只显示一次**）。
+   - 旧式 **Classic → Automation** token 也能用，权限更粗但配起来最快。
+3. 开了账号 2FA 的话，选 Automation/Granular 才不会被要求交互式 OTP。
+
+**第 2 步：把 token 存成 GitHub secret**
+
+仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**：
+
+| 字段 | 值 |
+|---|---|
+| Name | `NPM_TOKEN`（必须一字不差） |
+| Secret | 上一步复制的 `npm_...` |
+
+命令行等价写法（会提示粘贴，不回显）：
+
+```bash
+gh secret set NPM_TOKEN --repo hhx465453939/ShipGate
+```
+
+### 发版三步
+
+```bash
+# 1) 先手动验证链路（dry_run 默认就是 true，不写盘、不发版）
+gh workflow run release --repo hhx465453939/ShipGate -f dry_run=true
+gh run watch
+
+# 2) 改版本号并提交（tag 必须与 package.json 版本一致，CI 会校验）
+npm version patch --no-git-tag-version   # 或 minor / major
+git add package.json && git commit -m "chore(release): 0.2.2"
+git push
+
+# 3) 打 tag 触发发布
+git tag v0.2.2 && git push origin v0.2.2
+gh run watch
+```
+
+发版后的排错口径：
+
+- **JOB 绿但没发出去** → 看 `版本是否已发布（幂等）` 步骤，`::notice::` 说明该版本已在 npm，属预期跳过。
+- **`EOTP` / `E403`** → token 类型不对（用了需要 OTP 的 Publish token）或权限不足，换 Granular Read and write 重配 secret。
+- **`tag x 与 package.json y 不一致`** → 先改 `package.json` 版本并 push，再打 tag。
+
 ## 与上游的关系
 
 | 项目 | 关系 |
