@@ -1,4 +1,4 @@
-<!-- shipgate:begin v2 -->
+<!-- shipgate:begin v3 -->
 ## ShipGate 闸链（`shipgate install` 维护的托管区块，勿手改区块内内容）
 
 本机部署了 ShipGate {{VERSION}}：27 个开发 skill + 4 道闸 + 按 harness 分级的门控。
@@ -46,16 +46,30 @@ shipgate policy --mode enforce|bypass
 
 受保护工作区里的 `git stash/reset --hard/clean -f/checkout -- .` 等清场命令会被拦下；需要临时放宽用 `--mode bypass` 并说明原因。
 
-### 引擎（闸的依赖，按需安装；缺了闸会退出码 3）
+### 引擎：slop 检测（aislop）与安全审计（cbh）
 
-ShipGate 只检查不代装，自行执行：
+两者都是闸的依赖，装在 PATH 上一次，所有 harness 的 shell 共用；缺了闸返回退出码 3，`shipgate doctor` 会给安装命令。
 
 ```bash
-npm i -g aislop                                                  # quality 闸：slop 检测/修复
-pipx install git+https://github.com/elementalsouls/Claude-BugHunter  # security 闸：cbh
+npm i -g aislop                                                                        # quality 闸
+git clone --depth 1 https://github.com/elementalsouls/Claude-BugHunter ~/.local/src/Claude-BugHunter
+python3 -m pip install --user -i https://pypi.org/simple ~/.local/src/Claude-BugHunter   # 无 pipx 走这两步
+#   Windows PowerShell 路径写 "$HOME\.local\src\Claude-BugHunter"，python3 换 python；有 pipx 可 pipx install git+…
+aislop doctor && cbh --help    # 自检：aislop 四引擎应全 ready；cbh 无 --version，看子命令
 ```
 
-调试走 `code-debugger` / `debug-ui` skill，纯提示词、不需要额外引擎；`shipgate doctor` 会列出当前缺哪些引擎。
+什么时候调谁：
+
+| 目的 | 命令 |
+|---|---|
+| 判定这次改动能不能提交 | `shipgate quality`（阈值与 error 级判定都在闸里） |
+| 看具体哪些行是 slop / 机械修复 | `aislop scan . -d` → `aislop fix` → 结构性大改 `aislop agent` |
+| 安全：先确认授权范围 | `shipgate security --scope <scope.md>`（只校验，不发包） |
+| 安全：范围内侦察 / 归类 / 验证 | `cbh recon / surface / diff / classify / triage`，方法论按 `shipgate-security` skill |
+
+`cbh` 自带的 82 个 `hunt-*` skill **默认未装**（体积与迭代频率不合，不随 ShipGate 分发）。需要时自行安装：`pwsh scripts/install.ps1 -All`（装进 `~/.claude/skills`，备份落在加载路径之外），再按 `cbh classify` 指到的 skill 名去读。
+
+调试走 `code-debugger` / `debug-ui` skill，纯提示词、不需要额外引擎。
 
 ### 硬规则
 
@@ -63,5 +77,6 @@ pipx install git+https://github.com/elementalsouls/Claude-BugHunter  # security 
 2. `security` 没有 `--scope` 会被拒绝（退出码 2）；主动探测永不自动执行。
 3. `spec` 不通过 → 补契约三件套，不许先写代码后补文档。
 4. 排查入口：`shipgate doctor`；不知道怎么走就问 `shipgate gates`。
+5. 引擎缺失不是绕过的理由：`shipgate doctor` 给安装命令；不要用「我手动看过了」代替 quality / security 闸。
 
 <!-- shipgate:end -->

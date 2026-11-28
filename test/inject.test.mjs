@@ -13,10 +13,21 @@ function tmpdir() {
 const block = renderBlock({ version: '0.1.0', min: 80 });
 
 test('渲染出的区块有 begin/end 标记且无时间戳', () => {
-  assert.equal(blockVersion(block), 'v2');
-  assert.match(block, /<!-- shipgate:begin v2 -->/);
+  assert.equal(blockVersion(block), 'v3');
+  assert.match(block, /<!-- shipgate:begin v3 -->/);
   assert.match(block, /<!-- shipgate:end -->/);
   assert.doesNotMatch(block, /\d{4}-\d{2}-\d{2}T/);
+});
+
+test('区块带着「引擎什么时候调」的具体指引，不是只有一句安装命令', () => {
+  // 这段进每个 agent 的系统上下文：既要能照抄装（本机无 pipx、默认 pip 镜像可能是空的），
+  // 也要说清 hunt-* skill 默认不在本机，别让 agent 现编方法论。
+  assert.match(block, /aislop doctor && cbh --help/);
+  assert.match(block, /pypi\.org\/simple/);
+  assert.match(block, /aislop scan \. -d/);
+  assert.match(block, /shipgate security --scope/);
+  assert.match(block, /hunt-\*/);
+  assert.match(block, /install\.ps1 -All/);
 });
 
 test('文件不存在 → created，且内容含区块', () => {
