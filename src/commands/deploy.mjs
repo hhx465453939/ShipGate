@@ -8,7 +8,7 @@ import { allHarnesses, capabilities, detected, getHarness, resolveHarness, selec
 import { installAgents, installCommands, installSkills, listSkillNames, pruneSkills, skillsSource, auditSkillRoot, detectFlatSkillDuplicates, skillsBackupDir } from '../lib/skills.mjs';
 import { blockVersion, cursorFrontmatter, renderBlock, upsertBlock } from '../inject/render.mjs';
 import { gateStatus, installGateBundle, loadPolicy, syncPolicyToHarnesses, detectLegacyGates } from '../lib/gate.mjs';
-import { checkEngines, reportEngines, resolveAislop } from '../lib/engines.mjs';
+import { checkEngines, missingEngineHints, reportEngines, resolveAislop } from '../lib/engines.mjs';
 import { runShipGate } from '../gates/ship.mjs';
 import { run } from '../lib/exec.mjs';
 import { checkLatest, checkedToday, markChecked, selfUpdate } from '../lib/update.mjs';
@@ -398,7 +398,7 @@ export async function install(ctx) {
 
   const engines = checkEngines(ctx);
   log.title('引擎');
-  const missingEngines = Object.entries(engines).filter(([, info]) => !info.bin);
+  const missingEngines = missingEngineHints(engines);
   reportEngines(engines, { withPath: false });
   if (missingEngines.length === 0 && !dryRun) {
     log.info(c.dim('提示：quality 的 per-edit 钩子需显式启用 → shipgate install --hooks 或 aislop hook install --claude'));

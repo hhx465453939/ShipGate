@@ -8,6 +8,7 @@ import { DEFAULTS } from '../src/lib/cfg.mjs';
 import { detectLegacyGates } from '../src/lib/gate.mjs';
 import { installSkills, detectFlatSkillDuplicates } from '../src/lib/skills.mjs';
 import { checkEngines, missingEngineHints } from '../src/lib/engines.mjs';
+import { runShipGate } from '../src/gates/ship.mjs';
 import { install, reportLegacyGates } from '../src/commands/deploy.mjs';
 
 function tmp(prefix) {
@@ -222,6 +223,36 @@ test('checkEngines：无 pipx 给两步式命令，有 pipx 才给 pipx', () => 
   } finally {
     process.env.PATH = original;
   }
+});
+
+test('missingEngineHints：pythonEngine 为 null 时不炸（install/gates 回归）', () => {
+  // pythonEngine 是 aislop 的子探针，没有 bin/install 契约；原实现把它当引擎
+  // 遍历，先是 null.bin，再是 null.install，让 install 崩在写盘之后。
+  assert.deepEqual(missingEngineHints({ aislop: { bin: '/x/aislop' }, pythonEngine: null }), []);
+  assert.deepEqual(missingEngineHints({ aislop: { bin: null, install: 'npm i -g aislop' }, pythonEngine: null }), [
+    { name: 'aislop', install: 'npm i -g aislop' },
+  ]);
+});
+
+test('ship 闸：目的自加文件不算漂移，内容改动才算', () => {
+  const src = tmp('sg-ship-src-');
+  const dst = tmp('sg-ship-dst-');
+  fs.mkdirSync(path.join(src, 'demo'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'demo', 'SKILL.md'), 'name: demo\n');
+  fs.mkdirSync(path.join(dst, 'demo', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(dst, 'demo', 'SKILL.md'), 'name: demo\n');
+  // codex 会在 skill 目录里自带 agents/openai.yaml —— 不是漂移
+  fs.writeFileSync(path.join(dst, 'demo', 'agents', 'openai.yaml'), 'x: 1\n');
+
+  const harness = { id: 'demo-harness', skillsPath: dst };
+  const manifest = { harnesses: { 'demo-harness': { skills: { demo: { hash: 'whatever' } } } } };
+  const clean = runShipGate({ harnesses: [harness], manifest, skillsSource: src });
+  assert.deepEqual(clean.findings, []);
+
+  fs.writeFileSync(path.join(dst, 'demo', 'SKILL.md'), 'name: demo changed\n');
+  const drifted = runShipGate({ harnesses: [harness], manifest, skillsSource: src });
+  assert.equal(drifted.findings.length, 1);
+  assert.match(drifted.findings[0].message, /与源不一致/);
 });
 
 test('missingEngineHints：齐全时为空，缺哪个就只给哪个的命令', () => {

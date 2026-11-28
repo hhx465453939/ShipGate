@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { exists, hashFile, readText } from '../lib/fsx.mjs';
+import { exists, readText } from '../lib/fsx.mjs';
+import { sourceTreeDrift } from '../lib/skills.mjs';
 import { blockVersion } from '../inject/render.mjs';
 
 /**
@@ -14,18 +15,20 @@ export function runShipGate({ harnesses = [], manifest, skillsSource }) {
     const record = manifest.harnesses[harness.id] ?? { skills: {}, inject: null, gate: null };
 
     if (harness.skillsPath) {
-      for (const [name, meta] of Object.entries(record.skills ?? {})) {
+      for (const name of Object.keys(record.skills ?? {})) {
         const installed = path.join(harness.skillsPath, name, 'SKILL.md');
-        const source = path.join(skillsSource, name, 'SKILL.md');
+        const sourceDir = path.join(skillsSource, name);
+        const source = path.join(sourceDir, 'SKILL.md');
         if (!exists(installed)) {
           findings.push({ level: 'error', harness: harness.id, message: `skill 缺失：${installed}` });
           continue;
         }
-        const installedHash = hashFile(installed);
-        if (exists(source) && installedHash !== hashFile(source)) {
+        // Same judgement as installSkills(): the destination must carry every
+        // source file with matching content. Files the destination adds on its
+        // own (e.g. codex's agents/openai.yaml inside a skill) are not drift —
+        // comparing whole-tree hashes here made every install look inconsistent.
+        if (exists(source) && sourceTreeDrift(sourceDir, path.join(harness.skillsPath, name))) {
           findings.push({ level: 'error', harness: harness.id, message: `skill 与源不一致，需要重装：${name}` });
-        } else if (meta.hash && installedHash !== meta.hash) {
-          findings.push({ level: 'error', harness: harness.id, message: `skill hash 与 manifest 不符：${name}` });
         }
       }
     }

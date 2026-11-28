@@ -174,6 +174,9 @@ export function reportEngines(engines, { withPath = true } = {}) {
 /** Only the engines that are actually absent, each with its own command. */
 export function missingEngineHints(engines) {
   return Object.entries(engines)
-    .filter(([, info]) => !info.bin)
+    // `pythonEngine` is a sub-probe of aislop, not an engine: it has no `bin`
+    // and no `install`, and is null when aislop ships no bundled engine for
+    // this platform. Same exclusion as reportEngines().
+    .filter(([name, info]) => name !== 'pythonEngine' && !info?.bin)
     .map(([name, info]) => ({ name, install: info.install }));
 }

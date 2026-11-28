@@ -18,7 +18,10 @@ export function listGates(ctx) {
   // told the operator to install both.
   const missing = missingEngineHints(engines);
   const withOk = Object.fromEntries(
-    Object.entries(engines).map(([name, info]) => [name, { ...info, ok: Boolean(info.bin) }]),
+    Object.entries(engines)
+      // pythonEngine is a sub-probe of aislop, not an engine; doctor reports it separately.
+      .filter(([name]) => name !== 'pythonEngine')
+      .map(([name, info]) => [name, { ...info, ok: Boolean(info?.bin) }]),
   );
 
   if (ctx.flags.json) {
@@ -36,8 +39,8 @@ export function listGates(ctx) {
   log.plain(table(GATE_ROWS, ['gate', '什么时候过', '命令', '引擎']));
   log.title('引擎');
   log.plain(
-    Object.entries(engines)
-      .map(([name, info]) => `${name} ${info.bin ? c.green('ok') : c.red('missing')}`)
+    Object.entries(withOk)
+      .map(([name, info]) => `${name} ${info.ok ? c.green('ok') : c.red('missing')}`)
       .join('   '),
   );
   if (missing.length > 0) {
