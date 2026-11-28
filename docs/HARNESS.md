@@ -68,6 +68,8 @@ ZCode 是智谱的 GUI IDE，**本机未安装**（无 `~/.zcode`），且 3.0 �
 | 注入 | `templates/agents-snippet.md` | `<harness>` 入口文档的托管区块 |
 | 硬门控 | `assets/gates/**` | `<harness gate.dest>` |
 
+skills 的分发判据是**整棵目录摘要**（`hashTree`）：入口 `SKILL.md`、`scripts/`、`references/`、模板任一变化都会重拷；并逐源文件比对目的目录（`sourceTreeDrift`），被篡改或半拷贝的技能会在下次 `install` 自愈。目的端用户自己加的文件不算漂移，不会造成每次安装都报“有变化”。
+
 ## 硬门控产物
 
 `assets/gates/` 是 vendored 产物，源出 `agent-config-bridge` 的 `bridge/gates/`：
@@ -84,7 +86,28 @@ assets/gates/
 └── profiles/       域配置（ai4s 等）
 ```
 
-`policy.json` 由 `shipgate policy` 管理：真源是 `~/.config/shipgate/gate-policy.json`，各 harness 的 `policy.json` 是它的投影。安装时首次合并（并集，且把 harness 既有条目提升回真源），之后 `--sync` 严格按真源覆盖——所以 `--rm-protected` 能真正生效。
+`policy.json` 由 `shipgate policy` 管理：真源是 `~/.config/shipgate/gate-policy.json`，各 harness 的 `policy.json` 是它的投影。
+
+合并方向是**出厂文档为 base、真源只提供 config**：
+
+| 层 | 提供什么 | 为什么 |
+|---|---|---|
+| `assets/gates/<kind>/policy.json` | `checks` / `reminder` / `description` / `version` | 每个 kind 的规则文档不一样（pi v6、dsh v7）；拿别处的文档当 base 就会让一个 harness 的旧副本变成另一个的规则 |
+| harness 既有 `policy.json` 的 `config` | 机器本地设置 | 提升回真源，`--sync` 才能一致投影 |
+| 真源 `gate-policy.json` 的 `config` | 授权与阈值（最终裁定） | 唯一真源；protected worktrees 安装时取并集、之后严格按真源覆盖，所以 `--rm-protected` 能真正生效 |
+
+真源文件因此只含 `config`。安装/同步都是幂等的：重复执行不会把文档字段写回真源。
+
+### 入口与模块格式（per-kind）
+
+`assets/gates/index.js` 是 **pi** 的入口，不能原样复制给 dsh：
+
+| 产物 | pi | dsh |
+|---|---|---|
+| `index.js` | `export { default } from './pi/index.js'` | `export { apply, inject } from './dsh/index.js'` |
+| `package.json` | 不写 | `{"type":"module"}`（否则 Node 按 CJS 解析，插件在 `export` 处就失败） |
+
+安装时按 `harness.gate.kind` 写对应入口，未知 kind 回退到 pi 入口、不写 `package.json`。dsh 的实际挂载行仍是操作者的事（`cordis.patch.yml` 属 dsh 设置面），但挂上之后产物必须能加载。
 
 升级方式：bridge 侧变更后重新导出覆盖该目录，CHANGELOG 记录来源 hash。
 

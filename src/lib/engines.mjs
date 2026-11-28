@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { version as toolVersion, which } from './exec.mjs';
 import { c, log } from './log.mjs';
@@ -13,6 +14,78 @@ export function resolveAislop(cwd) {
   const local = path.join(cwd, 'node_modules', '.bin', 'aislop');
   if (exists(local)) return local;
   return which('aislop');
+}
+
+/**
+ * The aislop package root, found by walking up from the binary until a
+ * `tools/python` directory appears. Used to name the exact bundled binary when
+ * it cannot run: the failure is silent (empty stdout → JSON parse error), so a
+ * hint without a path is not actionable.
+ */
+export function resolveAislopPackageRoot(bin) {
+  if (!bin) return null;
+  let current;
+  try {
+    current = fs.realpathSync(bin);
+  } catch {
+    return null;
+  }
+  for (let depth = 0; depth < 5; depth += 1) {
+    const parent = path.dirname(current);
+    if (!parent || parent === current) break;
+    current = parent;
+    if (exists(path.join(current, 'tools', 'python'))) return current;
+  }
+  return null;
+}
+
+function pythonEnginePath(root) {
+  const exe = process.platform === 'win32' ? 'aislop-python.exe' : 'aislop-python';
+  return path.join(root, 'tools', 'python', `${process.platform}-${process.arch}`, exe);
+}
+
+/**
+ * aislop bundles a Python engine binary (used for ruff). On an older glibc that
+ * binary cannot load, ruff prints nothing, and the failure surfaces only as a
+ * `ruff/engine-error` finding. `aislop doctor` still reports lint as ready, so
+ * the incompatibility is checked here and named before anyone runs a gate.
+ */
+export function aislopPythonEngine(aislopBin) {
+  const root = resolveAislopPackageRoot(aislopBin);
+  if (!root) return null;
+  const file = pythonEnginePath(root);
+  if (!exists(file)) return null;
+
+  const executable = process.platform === 'win32' ? true : (fs.statSync(file).mode & 0o111) !== 0;
+  const glibc = process.report?.getReport?.()?.header?.glibcVersionRuntime ?? null;
+  const parts = glibc ? String(glibc).split('.').map((n) => Number.parseInt(n, 10)) : null;
+  const needsNewerGlibc = Boolean(
+    process.platform === 'linux' && parts && (parts[0] < 2 || (parts[0] === 2 && parts[1] < 34)),
+  );
+  return { path: file, executable, glibc, needsNewerGlibc, broken: executable && needsNewerGlibc };
+}
+
+/**
+ * Turning an engine crash into an instruction. The bundled Python engine cannot
+ * load on an old glibc and says nothing about it, so the gate carries the
+ * diagnosis rather than echoing "unexpected end of JSON input".
+ */
+export function engineHint(rules, bin) {
+  const ruff = rules.some((rule) => String(rule).startsWith('ruff/'));
+  const root = resolveAislopPackageRoot(bin);
+  const bundled = root ? pythonEnginePath(root) : null;
+  if (ruff && bundled && exists(bundled)) {
+    return [
+      `aislop 自带的 Python 引擎跑不起来：${bundled}`,
+      'Linux 上 0.23.0 的这份二进制要求 GLIBC ≥ 2.34；老发行版（如 Ubuntu 20.04 / 2.31）会静默失败，ruff 输出为空 → JSON 解析错误。',
+      `处置：chmod a-x "${bundled}"   # 去掉可执行位，aislop 回退到 PATH 上的 ruff`,
+      '然后确认 `which ruff` 有输出；仍失败就换到 CI 机器跑。',
+    ].join('\n');
+  }
+  if (ruff) {
+    return 'ruff 引擎报错：先 `which ruff` 确认可执行，再 `aislop doctor` 看 lint 引擎；必要时在 .aislop/config.yml 里设 engines.lint: false 或换 CI 机器。';
+  }
+  return '先运行 `aislop doctor` 看哪个引擎失败，再决定禁用该引擎或补依赖。';
 }
 
 /**
@@ -73,6 +146,7 @@ export function checkEngines(ctx) {
       path: cbhBin ? path.dirname(cbhBin) : null,
       onPath: onPath(cbhBin),
     },
+    pythonEngine: aislopPythonEngine(aislopBin),
   };
 }
 
@@ -83,6 +157,9 @@ export function checkEngines(ctx) {
  */
 export function reportEngines(engines, { withPath = true } = {}) {
   for (const [name, info] of Object.entries(engines)) {
+    // `pythonEngine` is a sub-probe of aislop, not an engine of its own; doctor
+    // prints its finding separately.
+    if (name === 'pythonEngine') continue;
     if (!info.bin) {
       log.warn(`${name} 未安装 → ${info.install}`);
       continue;

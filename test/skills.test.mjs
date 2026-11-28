@@ -9,6 +9,7 @@ import {
   installAgents,
   installCommands,
   installSkills,
+  hashTree,
   listAgentNames,
   listCommandNames,
   listSkillNames,
@@ -189,4 +190,36 @@ test('auditSkillRoot：干净目录零发现', () => {
     [audit.invalidNames, audit.longDescriptions, audit.collisions, audit.strayDirs],
     [[], [], [], []],
   );
+});
+
+// --- CHG-20261128-gate-bundle-integrity v2：技能目录整棵哈希 ---
+
+test('hashTree：入口或嵌套文件任一变化都改变摘要', () => {
+  const dir = tmpdir();
+  fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), 'name: x\ndescription: y\n');
+  fs.writeFileSync(path.join(dir, 'scripts', 'run.py'), 'print(1)\n');
+
+  const base = hashTree(dir);
+  fs.writeFileSync(path.join(dir, 'scripts', 'run.py'), 'print(2)\n');
+  const nestedChanged = hashTree(dir);
+  assert.notEqual(nestedChanged, base, '嵌套文件改动必须改变摘要');
+
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), 'name: x\ndescription: z\n');
+  assert.notEqual(hashTree(dir), nestedChanged, '入口改动也必须改变摘要');
+});
+
+test('installSkills：目的目录的嵌套文件被篡改后会重新分发', () => {
+  const dest = tmpdir();
+  const harness = { id: 'probe', skillsPath: dest };
+  const record = {};
+
+  installSkills(harness, record);
+  const nested = path.join(dest, 'dev-host-init', 'scripts', 'tools-catalog.py');
+  assert.ok(fs.existsSync(nested), '安装后应存在嵌套脚本');
+  fs.writeFileSync(nested, '# tampered\n');
+
+  const again = installSkills(harness, record);
+  assert.ok(again.installed.includes('dev-host-init'), '嵌套文件与源不一致时必须重拷');
+  assert.notEqual(fs.readFileSync(nested, 'utf-8'), '# tampered\n', '篡改必须被源内容覆盖');
 });

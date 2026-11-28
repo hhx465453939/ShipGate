@@ -45,6 +45,19 @@ which cbh && cbh --help                # cbh 无 --version，只能看子命令
 - `scoreable: false`（引擎未跑起来）按不通过处理，summary 里列出 `coverage.failedEngines`。
 - 阈值优先级：`--min` > 项目 `.shipgate/config.json` > 全局配置 > 80。
 
+### 引擎级错误（`engine-error`）与“未安装”、“输出无法解析”的区别
+
+| 现象 | 含义 | 退出码 | 处置 |
+|---|---|---|---|
+| `aislop 未安装` / `cbh 未安装` | 引擎不在 PATH | 3 | 按 `shipgate doctor` 给的命令装 |
+| `aislop 输出无法解析（exit=…）` | aislop 本身没跑起来 | 3 | 单独跑 `aislop scan . --json` 看真实报错 |
+| `无法评分（ruff 引擎报错）` | aislop 跑了，但底层引擎崩了（诊断里是 `<engine>/engine-error`） | 3 | 看 `evidence.hint`；典型是老 glibc 上 aislop 自带的 Python 引擎加载失败 |
+| `score < min` / `N 个 error 级发现` | 代码问题 | 1 | `aislop fix` 或改代码 |
+
+判据：只有 `rule` 以 `engine-error` 结尾的诊断算引擎级错误；普通 finding 仍按 error 计，不会被降级成“环境问题”。
+
+典型根因（实测）：aislop 0.23.0 的 `tools/python/linux-x64/aislop-python` 要求 GLIBC ≥ 2.34。Ubuntu 20.04（2.31）上它静默失败，ruff 输出为空 → aislop 记一条 `ruff/engine-error`。处置：`chmod a-x <该二进制>`（回退到 PATH 上的 ruff），`shipgate doctor` 会在引擎节直接报 `AISLOP_PYTHON_ENGINE_UNUSABLE` 并给出带绝对路径的命令。
+
 ## security 闸细节
 
 - 只做**前置合规校验**：scope 存在、非空、有范围段落、cbh 在。

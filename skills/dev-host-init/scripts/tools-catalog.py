@@ -8,7 +8,9 @@ tools-catalog.py — dev-host-init 部署方式目录（问卷选项 + 命令含
 【脱敏】本文件只含公开下载源与通用占位（<版本>、<仓库URL>）；不出现仓库本地绝对路径、
 SSH 别名、VPS IP 或任何本机专属字面量。Windows 用 %LOCALAPPDATA% 兜底、POSIX 只有 $HOME。
 """
-import os, hashlib, json
+import os
+import hashlib
+import json
 
 
 # ---------- 工具部署目录：name → {windows/posix: [选项]}, note ----------

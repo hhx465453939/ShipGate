@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { run } from '../lib/exec.mjs';
-import { resolveAislop } from '../lib/engines.mjs';
+import { engineHint, resolveAislop } from '../lib/engines.mjs';
 
 function parseJsonPayload(stdout) {
   const start = stdout.indexOf('{');
@@ -59,6 +59,30 @@ export function runQualityGate({ cwd = process.cwd(), target = '.', min = 80, ti
   const diagnostics = data.diagnostics ?? [];
   const errors = diagnostics.filter((d) => d.severity === 'error');
   const failedEngines = data.coverage?.failedEngines ?? [];
+
+  // aislop emits `<engine>/engine-error` when the engine itself crashed. That is
+  // an environment fault: reporting it as a code finding sends the operator to
+  // the wrong file, and code 1 (= fix your code) is the wrong verdict.
+  const engineErrors = diagnostics.filter((d) => /(^|\/)engine-error$/.test(String(d.rule ?? '')));
+  if (engineErrors.length > 0) {
+    const rules = [...new Set(engineErrors.map((d) => String(d.rule)))];
+    const engines = [...new Set(rules.map((rule) => rule.split('/')[0]))];
+    return {
+      gate: 'quality',
+      ok: false,
+      code: 3,
+      summary: `无法评分（${engines.join(', ')} 引擎报错）——环境问题，不是代码问题`,
+      findings: [],
+      evidence: {
+        score: data.score ?? null,
+        engines,
+        rules,
+        engineErrors: engineErrors.slice(0, 5),
+        failedEngines,
+        hint: engineHint(rules, bin),
+      },
+    };
+  }
 
   if (data.scoreable !== true) {
     const hint = failedEngines.includes('lint')

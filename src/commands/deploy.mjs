@@ -236,6 +236,13 @@ export async function doctor(ctx) {
 
   log.title('引擎');
   reportEngines(engines);
+  const py = engines.pythonEngine;
+  if (py?.broken) {
+    log.warn('AISLOP_PYTHON_ENGINE_UNUSABLE：aislop 自带的 Python 引擎与本机 GLIBC 不兼容');
+    log.info(`  ${c.dim(`路径 ${py.path}（需要 GLIBC ≥ 2.34，本机 ${py.glibc}）`)}`);
+    log.info(`  ${c.dim('它会让 ruff 输出为空，quality 闸因此报“引擎错误”——那是环境问题，不是代码问题')}`);
+    log.info(`  chmod a-x "${py.path}"   ${c.dim('# 去掉可执行位，aislop 回退到 PATH 上的 ruff')}`);
+  }
 
   const nodeMajor = Number.parseInt(process.version.slice(1), 10);
   if (nodeMajor < 20) log.err(`node ${process.version} 低于最低要求 20`);

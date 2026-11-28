@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { packageRoot } from '../version.mjs';
@@ -224,7 +225,62 @@ function installFileSet(files, srcDir, destDir, recordKey, record, { dryRun }) {
 }
 
 /**
- * Copy-on-change: a skill whose SKILL.md hash already matches the manifest is
+ * Digest of a whole skill directory.
+ *
+ * A skill ships more than its entry file: `scripts/`, `references/`, templates.
+ * Hashing only SKILL.md froze those at first install — a fixed script never
+ * reached any harness, and `install` reported "no change" while the copies were
+ * stale. The digest covers relative path + content for every regular file, in a
+ * sorted order so it does not depend on directory iteration.
+ */
+export function hashTree(dir) {
+  const entries = [];
+  const walk = (current, prefix) => {
+    for (const entry of listDir(current)) {
+      const full = path.join(current, entry.name);
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(full, rel);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      entries.push(`${rel}\u0000${hashFile(full)}`);
+    }
+  };
+  walk(dir, '');
+  entries.sort();
+  return crypto.createHash('sha256').update(entries.join('\n')).digest('hex');
+}
+
+/**
+ * Is any source file missing or different in the destination?
+ *
+ * Only the source's file set is compared: a harness skill directory may carry
+ * files a user put there (extra notes, a local asset), and treating those as
+ * drift would make every install a "change". What this does catch is the case
+ * that matters — a tampered or half-copied skill is repaired on the next run.
+ */
+export function sourceTreeDrift(srcDir, destDir) {
+  let drift = false;
+  const walk = (src, dest, prefix) => {
+    for (const entry of listDir(src)) {
+      const from = path.join(src, entry.name);
+      const to = path.join(dest, entry.name);
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(from, to, rel);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!exists(to) || hashFile(to) !== hashFile(from)) drift = true;
+    }
+  };
+  walk(srcDir, destDir, '');
+  return drift;
+}
+
+/**
+ * Copy-on-change: a skill whose directory digest already matches the manifest is
  * skipped, so re-running install does not touch mtimes or churn backups.
  */
 export function installSkills(harness, record, { dryRun = false } = {}) {
@@ -243,11 +299,10 @@ export function installSkills(harness, record, { dryRun = false } = {}) {
 
   for (const name of listSkillNames()) {
     const srcDir = path.join(skillsSource(), name);
-    const srcFile = path.join(srcDir, 'SKILL.md');
     const destDir = path.join(harness.skillsPath, name);
-    const hash = hashFile(srcFile);
+    const hash = hashTree(srcDir);
 
-    if (record.skills[name]?.hash === hash && exists(path.join(destDir, 'SKILL.md'))) {
+    if (record.skills[name]?.hash === hash && exists(path.join(destDir, 'SKILL.md')) && !sourceTreeDrift(srcDir, destDir)) {
       result.skipped.push(name);
       continue;
     }

@@ -14,7 +14,12 @@ dev-host-init 占位符填充器（跨平台，零本机硬编码）
 - 模板是开源共享的：只能含 {{占位符}}；真实值一律由 init 探测回填。
 - 探测不到 → 输出「未检测到」，绝不猜一个本机专属值。
 """
-import argparse, json, os, re, subprocess, sys
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -155,7 +160,7 @@ def build_values(h):
     envs = detect_value(h, "env_managers.conda_envs", []) or []
     uv_py = detect_value(h, "env_managers.uv_pythons", []) or []
     if envs or uv_py:
-        v["ENV_TABLE"] = "conda: " + ", ".join(envs[:12]) + (f"\nuv python: " + ", ".join(uv_py[:8]) if uv_py else "")
+        v["ENV_TABLE"] = "conda: " + ", ".join(envs[:12]) + ("\nuv python: " + ", ".join(uv_py[:8]) if uv_py else "")
     else:
         v["ENV_TABLE"] = "未检测到 conda/uv 环境"
     v["PREFERENCES_SUMMARY"] = "未采集偏好，走默认偏好模板"

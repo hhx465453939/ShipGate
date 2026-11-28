@@ -71,20 +71,29 @@ export function setMode(mode) {
 }
 
 /**
- * Merge rule: global policy wins on `config`; everything else already in the
- * harness policy file is preserved; protected worktrees are unioned so a
- * harness never silently loses a protection the operator just added.
+ * Merge rule: the base document supplies the rules (checks / reminder /
+ * description / version), `config` is layered as base defaults ← harness-local
+ * ← global truth, and protected worktrees are unioned so a harness never
+ * silently loses a protection the operator just added.
+ *
+ * The global policy deliberately contributes **only** `config`: it used to be
+ * spread whole, which let one harness's stale copy become the next harness's
+ * shipped rules.
  */
-export function mergePolicy(globalPolicy, existing) {
-  const base = existing && typeof existing === 'object' ? existing : {};
-  const existingConfig = base.config && typeof base.config === 'object' ? base.config : {};
+export function mergePolicy(globalPolicy, base, harnessConfig = {}) {
+  const document = base && typeof base === 'object' ? base : {};
+  const baseConfig = document.config && typeof document.config === 'object' ? document.config : {};
+  const localConfig = harnessConfig && typeof harnessConfig === 'object' ? harnessConfig : {};
   const union = [
-    ...new Set([...(globalPolicy.config.protected_worktrees ?? []), ...(existingConfig.protected_worktrees ?? [])]),
+    ...new Set([
+      ...(globalPolicy.config.protected_worktrees ?? []),
+      ...(localConfig.protected_worktrees ?? []),
+      ...(baseConfig.protected_worktrees ?? []),
+    ]),
   ];
   return {
-    ...base,
-    ...globalPolicy,
-    config: { ...existingConfig, ...globalPolicy.config, protected_worktrees: union },
+    ...document,
+    config: { ...baseConfig, ...localConfig, ...globalPolicy.config, protected_worktrees: union },
   };
 }
 
@@ -112,13 +121,28 @@ export function projectPolicy(globalPolicy, existing) {
   const existingConfig = base.config && typeof base.config === 'object' ? base.config : {};
   return {
     ...base,
-    ...globalPolicy,
     config: {
       ...existingConfig,
       ...globalPolicy.config,
       protected_worktrees: [...(globalPolicy.config.protected_worktrees ?? [])],
     },
   };
+}
+
+/**
+ * Entry point each harness loads. The vendored `assets/gates/index.js` is the pi
+ * entry; copying it verbatim hands dsh a pi plugin, so the matching entry is
+ * written at install time.
+ */
+const GATE_ENTRY = {
+  pi: "// pi loads a directory's index.js as the extension entry.\nexport { default } from './pi/index.js';\n",
+  dsh: "// dsh mounts a module specifier; index.js stays a valid entry too.\nexport { apply, inject } from './dsh/index.js';\n",
+};
+
+/** The shipped policy document for one harness kind (pi v6 / dsh v7), or null. */
+export function shippedPolicy(kind) {
+  const parsed = readJson(path.join(gatesSource(), kind, 'policy.json'));
+  return parsed && !parsed.__malformed ? parsed : null;
 }
 
 export function installGateBundle(harness, { dryRun = false } = {}) {
@@ -129,18 +153,33 @@ export function installGateBundle(harness, { dryRun = false } = {}) {
   const kind = harness.gate?.kind ?? 'pi';
   const target = path.join(harness.gateDest, 'policy.json');
   const existing = readJson(target);
+  const globalPolicy = loadPolicy();
+
+  // The document must come from the shipped per-kind file. Promoting whatever
+  // the harness already had is exactly how a stale v5 copy overwrote the v6/v7
+  // rules on the next install.
+  const shipped = shippedPolicy(kind);
+  const current = existing && !existing.__malformed ? existing : null;
+  const base = shipped ?? current ?? globalPolicy;
+  const localConfig = current?.config ?? {};
+  const merged = mergePolicy(globalPolicy, base, localConfig);
 
   if (!dryRun) {
     copyTree(source, harness.gateDest, { skip: ['policy.json'] });
     if (exists(target)) backupOnce(target);
-    const merged = mergePolicy(loadPolicy(), existing?.__malformed ? null : existing);
     writeText(target, JSON.stringify(merged, null, 2) + '\n');
-    // Promote anything the harness already had so the next sync can project
-    // from a complete source of truth instead of losing it.
-    savePolicy(merged);
+    writeText(path.join(harness.gateDest, 'index.js'), GATE_ENTRY[kind] ?? GATE_ENTRY.pi);
+    if (kind === 'dsh') {
+      // dsh loads the bundle as ESM. Without this, Node resolves `.js` as
+      // CommonJS and the plugin dies on `export` before any rule can run.
+      writeText(path.join(harness.gateDest, 'package.json'), JSON.stringify({ type: 'module' }, null, 2) + '\n');
+    }
+    // The truth source keeps CONFIG only: promoting the document is what made
+    // one harness's copy become the other harness's rules.
+    savePolicy({ config: merged.config });
   }
 
-  return { action: dryRun ? 'would-install' : 'installed', kind, target };
+  return { action: dryRun ? 'would-install' : 'installed', kind, target, version: merged.version ?? null };
 }
 
 export function syncPolicyToHarnesses(harnesses, { dryRun = false } = {}) {
@@ -152,7 +191,10 @@ export function syncPolicyToHarnesses(harnesses, { dryRun = false } = {}) {
     const target = path.join(harness.gateDest, 'policy.json');
     if (!exists(harness.gateDest)) continue;
     const existing = readJson(target);
-    const merged = projectPolicy(globalPolicy, existing?.__malformed ? null : existing);
+    // A harness whose policy file went missing is re-seeded from its own
+    // shipped document, not from whichever document happens to be in truth.
+    const base = existing && !existing.__malformed ? existing : shippedPolicy(harness.gate?.kind ?? 'pi');
+    const merged = projectPolicy(globalPolicy, base);
     if (!dryRun) {
       if (exists(target)) backupOnce(target);
       writeText(target, JSON.stringify(merged, null, 2) + '\n');

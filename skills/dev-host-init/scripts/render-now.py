@@ -38,7 +38,13 @@ render-now.py — 通用分层注入渲染器（dev-host-init 性能档）
   项目级 DEV_HOST_DEV_ROOT=<开发根> python scripts/render-now.py --project <项目绝对路径> [--config q.json]
   先 --dry-run 用 questionnaire 看将写路径，确认后再真写。
 """
-import argparse, importlib.util, json, os, re, subprocess, sys
+import argparse
+import importlib.util
+import json
+import os
+import re
+import subprocess
+import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "templates", "host-injection.template.md"))
@@ -424,7 +430,7 @@ if not art_skip:
     if art_style_id:
         style = tc.style_by_id(art_style_id)
         if style:
-            visualization_out = (f"# 视觉/图表风格（agent-reference/visualization.md）\n\n"
+            visualization_out = ("# 视觉/图表风格（agent-reference/visualization.md）\n\n"
                                  + tc.palette_text(style))
     elif art_seed:
         visualization_out = ("# 视觉/图表风格（agent-reference/visualization.md）\n\n"

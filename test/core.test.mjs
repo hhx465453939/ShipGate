@@ -6,6 +6,7 @@ import test from 'node:test';
 import { compareVersions, checkLatest, checkedToday } from '../src/lib/update.mjs';
 import { DEFAULTS, mergeConfig, loadConfig } from '../src/lib/cfg.mjs';
 import { run } from '../src/lib/exec.mjs';
+import { runQualityGate } from '../src/gates/quality.mjs';
 import { allHarnesses, resolveHarness, selectHarnesses } from '../src/harness/index.mjs';
 
 test('版本比较', () => {
@@ -87,4 +88,47 @@ test('run() 能启动 .cmd 垫片，且带空格的参数不被拆开', { skip: 
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /has space/);
   assert.match(result.stdout, /plain/);
+});
+
+// --- CHG-20261128-gate-bundle-integrity：引擎级错误不得当成代码问题 ---
+
+function stubAislop(payload) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shipgate-aislop-'));
+  const binDir = path.join(dir, 'node_modules', '.bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  const stub = path.join(binDir, 'aislop');
+  fs.writeFileSync(stub, `#!/bin/sh\ncat <<'JSON'\n${JSON.stringify(payload)}\nJSON\n`);
+  fs.chmodSync(stub, 0o755);
+  return dir;
+}
+
+const ENGINE_ERROR_PAYLOAD = {
+  schemaVersion: '1',
+  cliVersion: '0.0.0-stub',
+  score: 86,
+  scoreable: true,
+  coverage: { failedEngines: [] },
+  engines: { lint: { issues: 1, skipped: false } },
+  diagnostics: [{ severity: 'error', rule: 'ruff/engine-error', message: 'Unexpected end of JSON input', engine: 'lint' }],
+};
+
+test('quality：引擎崩溃报退出码 3 + 处置提示，不冒充代码 error', { skip: process.platform === 'win32' }, () => {
+  const cwd = stubAislop(ENGINE_ERROR_PAYLOAD);
+  const verdict = runQualityGate({ cwd, target: '.', min: 80 });
+  assert.equal(verdict.code, 3, verdict.summary);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.summary, /环境问题，不是代码问题/);
+  assert.ok(verdict.evidence.rules.includes('ruff/engine-error'));
+  assert.ok(verdict.evidence.hint && verdict.evidence.hint.length > 20, '必须给出可执行的处置提示');
+  assert.equal(verdict.findings.length, 0, '引擎错误不是代码发现');
+});
+
+test('quality：普通 error 级发现仍是代码问题（退出码 1）', { skip: process.platform === 'win32' }, () => {
+  const cwd = stubAislop({
+    ...ENGINE_ERROR_PAYLOAD,
+    diagnostics: [{ severity: 'error', rule: 'complexity/too-long', message: 'function too long', engine: 'code-quality' }],
+  });
+  const verdict = runQualityGate({ cwd, target: '.', min: 80 });
+  assert.equal(verdict.code, 1, verdict.summary);
+  assert.equal(verdict.findings.length, 1);
 });
