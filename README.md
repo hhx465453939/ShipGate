@@ -185,37 +185,40 @@ node scripts/migrate-skillpack.mjs --check   # 技能包 frontmatter 体检
 
 push main **不会**发版：发布开关只有「打 tag」和「手动 dispatch」两个，发布权留在人手上。
 
-### 一次性配置：NPM_TOKEN
+### 一次性配置：Trusted Publisher（OIDC，推荐）
 
-`release` 的发布步骤读仓库 secret `NPM_TOKEN`。配一次即可，之后所有发版都走它。
+`release` 默认用 **OIDC（npm Trusted Publishing）** 发布：GitHub 每次发布签一张短时凭据，仓库里不再需要长期 token，也不受 2FA 影响。
 
-**第 1 步：在 npm 建 token**
+**在 npm 包设置里绑定一次**
 
-1. 登录 <https://www.npmjs.com/> → 右上头像 → **Access Tokens** → **Generate New Token**。
-2. 选 **Granular Access Token**（推荐）：
-   - **Token name**：随便写，例如 `shipgate-github-actions`；
-   - **Expiration**：按需（例如 90 天，到期需换新）；
-   - **Packages and scopes** → 选 **Read and write**；
-   - **Packages** 选 **All packages**（首次发布时包还不存在，无法预先勾选单包；发布后可以收紧成只勾 `shipgate-cli`）；
-   - **Organizations** 不用动；
-   - 建完立刻复制那条 `npm_...` 开头的 token（**只显示一次**）。
-   - 旧式 **Classic → Automation** token 也能用，权限更粗但配起来最快。
-3. 开了账号 2FA 的话，选 Automation/Granular 才不会被要求交互式 OTP。
-
-**第 2 步：把 token 存成 GitHub secret**
-
-仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**：
+打开 <https://www.npmjs.com/package/shipgate-cli> → **Settings** → 找到 **Trusted Publisher** → 选 **GitHub Actions**：
 
 | 字段 | 值 |
 |---|---|
-| Name | `NPM_TOKEN`（必须一字不差） |
-| Secret | 上一步复制的 `npm_...` |
+| Organization or user | `hhx465453939` |
+| Repository | `ShipGate` |
+| Workflow filename | `release.yml`（只写文件名，含扩展名） |
+| Environment name | 留空 |
+| Allowed actions | **必须勾上 `npm publish`**（默认只给 `npm stage publish`，不勾会被拒） |
 
-命令行等价写法（会提示粘贴，不回显）：
+CLI 等价写法（本机先 `npm login`，账号已开 2FA）：
+
+```bash
+npm trust github shipgate-cli \
+  --repo hhx465453939/ShipGate \
+  --file release.yml \
+  --allow-publish
+```
+
+**备选：长期 token（OIDC 不可用时）**
+
+暂时不想绑 OIDC 也能发：npm → Access Tokens → Granular（**Read and write** + **All packages**，并取消勾选 `Require two-factor authentication for write actions`），或 Classic **Automation**。然后：
 
 ```bash
 gh secret set NPM_TOKEN --repo hhx465453939/ShipGate
 ```
+
+token 只是兜底：npm 优先用 OIDC，OIDC 失败才回退 token。绑定验证通过后可以删掉这个 secret。
 
 ### 发版三步
 
@@ -237,7 +240,8 @@ gh run watch
 发版后的排错口径：
 
 - **JOB 绿但没发出去** → 看 `版本是否已发布（幂等）` 步骤，`::notice::` 说明该版本已在 npm，属预期跳过。
-- **`ENEEDAUTH` / `need auth`** → 仓库里没有名为 `NPM_TOKEN` 的 secret（名字写错也算没有）。GitHub 不支持给 secret 改名：新建一个 `NPM_TOKEN` 粘贴同一个 token 值，再删旧名。
+- **绑了 OIDC 仍被拒** → 检查 `Allowed actions` 是否勾了 `npm publish`（默认只给 `npm stage publish`）；再核对仓库名、workflow 文件名（只写 `release.yml`），以及 runner 必须是 GitHub-hosted（npm 不支持自建 runner 的 OIDC）。
+- **`ENEEDAUTH` / `need auth`** → 既没有 OIDC 绑定，也没有可用的 `NPM_TOKEN`。先确认 npm 包绑了 Trusted Publisher；若走 token 路线，确认 secret 名一字不差是 `NPM_TOKEN`（GitHub 不支持改名，需新建后删旧名）。
 - **`EOTP`（要一次性密码）** → token 本身有效，但没有「免 2FA 写操作」属性。账号开了 2FA 时这样就必须重走 token，二选一：
   - **Classic** 类型选 **Automation**（天然免 OTP，最省事）；
   - **Granular** 类型在创建页**取消勾选** `Require two-factor authentication for write actions`。

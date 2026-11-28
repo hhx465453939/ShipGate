@@ -2,7 +2,8 @@ name: release
 
 # Publishing from a workstation is blocked whenever `npm login` has not been run
 # there, so the tag is the release trigger: push a version tag and CI publishes.
-# Requires the repository secret NPM_TOKEN (automation token with publish rights).
+# 认证优先走 OIDC（npm Trusted Publishing）：GitHub 每次发布签一张短时凭据。
+# NPM_TOKEN 只在 OIDC 不可用时兜底，npm CLI 的优先级是 OIDC → token。
 
 on:
   push:
@@ -36,12 +37,18 @@ jobs:
   publish:
     needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # OIDC：npm 用 GitHub 签发的短时凭据认证
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # setup-node 带的 npm 是 10.x，低于 trusted publishing 要求的 11.5.1
+      - name: 升级 npm（OIDC 需要 ≥ 11.5.1）
+        run: npm i -g npm@^11.15.0
 
       - name: 读取包版本
         id: pkg
@@ -61,19 +68,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run
         run: npm publish --dry-run
 
-      # 发布前先确认 secret 名对得上：名字写错时 token 就是空串，npm 只会报 ENEEDAUTH，
-      # 看起来像权限问题。这一步把诊断时间从十分钟压到五秒。
-      - name: 检查 NPM_TOKEN（secret 名对齐）
+      # OIDC 优先：npm CLI 先检测 GitHub 的 OIDC 环境并用它认证，失败才回退 token。
+      # 所以这里只提示、不阻断；绑定生效后 NPM_TOKEN 可以整个删掉。
+      - name: 检查发布凭据（OIDC 优先，token 兜底）
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::仓库 secret NPM_TOKEN 为空或不存在（名字必须一字不差是 NPM_TOKEN）"
-            echo "GitHub 不支持给 secret 改名：Settings → Secrets and variables → Actions → New repository secret，Name 填 NPM_TOKEN，重新粘贴 token 值，再删掉旧名字"
-            exit 1
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "::notice::检测到 NPM_TOKEN，但 npm 会优先用 OIDC（Trusted Publishing），token 仅兜底"
+          else
+            echo "::notice::未配置 NPM_TOKEN，仅靠 OIDC 发布；若失败请确认包已绑定 Trusted Publisher 且勾选了 Allow npm publish"
           fi
-          echo "::notice::已读到 NPM_TOKEN（长度 ${#NODE_AUTH_TOKEN}）"
 
       # 幂等：重跑 dispatch 或重推同一个 tag 时，版本已存在会让 npm publish 报 E403，
       # 那个红灯掩盖真问题。只有 npm view 成功取到版本才算已发布；查询失败一律按未发布继续。
