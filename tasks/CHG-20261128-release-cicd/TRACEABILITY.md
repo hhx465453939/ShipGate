@@ -26,7 +26,7 @@ approved_at: 2026-11-28
 |---|---|---|
 | M1 | `tasks/CHG-20261128-release-cicd/{PRD,SPEC,TRACEABILITY}.md` | 立契约 |
 | M2 | `.github/workflows/ci.yml` | 新建：`verify`（node 20/22/24 × 测试 + 技能包体检 + 契约闸）+ `quality`（aislop@0.23.0 固定版本） |
-| M3 | `.github/workflows/release.yml` | 新增「版本是否已发布（幂等）」步骤；`npm publish` 条件追加 `steps.published.outputs.already == 'false'` |
+| M3 | `.github/workflows/release.yml` | 新增 secret 预检与「版本是否已发布（幂等）」两步；`npm publish` 条件追加 `steps.published.outputs.already == 'false'` |
 | M4 | `README.md` | 新增「## 发版与 CI/CD」章节（两条流水线分工 + NPM_TOKEN 配置 + 三步发版 + 排错口径） |
 | M5 | `test/core.test.mjs` | 「auto 只取已探测 harness」用例去掉对真实 HOME 的断言，改用受控 custom profile（`here` / `gone`） |
 
@@ -41,6 +41,7 @@ approved_at: 2026-11-28
 | AC-5 | `gh workflow run release -f dry_run=true`（run 46129933087）；push main 触发的 ci（run 46129909913） | ✅ release：`verify` success + `publish` success（日志为 `npm publish --dry-run`，未真发）；✅ ci：`verify(20/22/24)` + `quality` 四个 job 全 success | 2026-11-28 |
 | AC-6 | `grep -n "NPM_TOKEN" README.md` | ✅ 命中 189/191/212/218 行；发版命令 `git tag v… && git push origin v…` 在 234 行 | 2026-11-28 |
 | AC-7 | `env HOME=/tmp/sg-empty-home node --test test/*.test.mjs` | ✅ 74 pass / 0 fail，与正常 HOME 结果一致（修复前该场景必红） | 2026-11-28 |
+| AC-8 | `gh workflow run release -f dry_run=false`（NPM_TOKEN 尚未配置，run 46132822308） | ✅ 第 7 步「检查 NPM_TOKEN（secret 名对齐）」failure，其后 `幂等`/`npm publish` 全部 skipped，未误发；失败注释直接落在该步，文案指向 secret 配置路径与「不支持改名」 | 2026-11-28 |
 
 ## 4. 首次实跑失败与修复（不掩盖）
 
