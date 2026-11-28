@@ -20,7 +20,8 @@ function targets(ctx, { includeUndetected = false } = {}) {
 
 function reportMissing(missing) {
   for (const harness of missing) {
-    log.warn(`${harness.label}（${harness.id}）未检测到：${harness.detectPath ?? '无探测路径'}，跳过`);
+    log.warn(`${harness.label}（${harness.id}）未检测到：${harness.detectPath ?? '无探测路径'}`);
+    log.info(`  ${c.dim('已按显式指定预装；不想预装就不要把它写进 --harness')}`);
   }
 }
 
@@ -341,7 +342,8 @@ export async function doctor(ctx) {
   log.plain(`${ship.ok ? c.green('✔') : c.red('✖')} ${ship.summary}`);
   for (const finding of ship.findings.slice(0, 10)) log.info(`  ${c.dim(`${finding.harness ?? ''} ${finding.message}`)}`);
 
-  return 0;
+  // A health check that prints ✖ and exits 0 is a decoration, not a gate.
+  return ship.ok ? 0 : 1;
 }
 
 export async function install(ctx) {
@@ -455,6 +457,10 @@ export async function inject(ctx) {
 export function status(ctx) {
   const manifest = loadManifest();
   const harnesses = allHarnesses(ctx.cfg).map(resolveHarness);
+  const managed = harnesses.filter((h) => Object.keys(harnessRecord(manifest, h.id)?.skills ?? {}).length);
+  // --strict turns the read-only view into the ship gate's verdict, so CI can
+  // fail on drift. Without it the command stays a plain status table.
+  const ship = ctx.flags.strict ? runShipGate({ harnesses: managed, manifest, skillsSource: skillsSource() }) : null;
   const rows = harnesses.map((harness) => {
     const record = harnessRecord(manifest, harness.id);
     const gate = harness.gateDest ? gateStatus(harness) : null;
@@ -471,12 +477,18 @@ export function status(ctx) {
   });
 
   if (ctx.flags.json) {
-    log.plain(JSON.stringify({ version: VERSION, manifest, rows }, null, 2));
-    return 0;
+    const payload = ship ? { version: VERSION, manifest, rows, ship: { ok: ship.ok, findings: ship.findings } } : { version: VERSION, manifest, rows };
+    log.plain(JSON.stringify(payload, null, 2));
+    return ship && !ship.ok ? 1 : 0;
   }
   log.title('ShipGate 受管状态');
   log.plain(table(rows, ['harness', 'state', 'skills', 'cmds', 'agents', 'inject', 'version', 'gate']));
-  return 0;
+  if (ship && !ship.ok) {
+    log.title('产物一致性');
+    log.plain(`${c.red('✖')} ${ship.summary}`);
+    for (const finding of ship.findings.slice(0, 10)) log.info(`  ${c.dim(`${finding.harness ?? ''} ${finding.message}`)}`);
+  }
+  return ship && !ship.ok ? 1 : 0;
 }
 
 function pickIds(ctx) {

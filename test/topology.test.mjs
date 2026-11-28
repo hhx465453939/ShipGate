@@ -9,6 +9,8 @@ import { detectLegacyGates } from '../src/lib/gate.mjs';
 import { installSkills, detectFlatSkillDuplicates } from '../src/lib/skills.mjs';
 import { checkEngines, missingEngineHints } from '../src/lib/engines.mjs';
 import { runShipGate } from '../src/gates/ship.mjs';
+import { runSpecGate } from '../src/gates/spec.mjs';
+import { expectedBlockVersion } from '../src/inject/render.mjs';
 import { install, reportLegacyGates } from '../src/commands/deploy.mjs';
 
 function tmp(prefix) {
@@ -253,6 +255,43 @@ test('ship 闸：目的自加文件不算漂移，内容改动才算', () => {
   const drifted = runShipGate({ harnesses: [harness], manifest, skillsSource: src });
   assert.equal(drifted.findings.length, 1);
   assert.match(drifted.findings[0].message, /与源不一致/);
+});
+
+test('spec check：传仓库根与传 <根>/tasks 等价（#5 回归）', () => {
+  const root = tmp('sg-spec-root-');
+  const chg = path.join(root, 'tasks', 'CHG-20260101-probe');
+  fs.mkdirSync(chg, { recursive: true });
+  fs.writeFileSync(path.join(chg, 'PRD.md'), '# PRD\n');
+  fs.writeFileSync(path.join(chg, 'SPEC.md'), '---\nstatus: approved\n---\n# SPEC\n\n## 4. 验收判据\n- AC-1 x\n');
+  fs.writeFileSync(path.join(chg, 'TRACEABILITY.md'), '# TRACE\n');
+
+  const viaRoot = runSpecGate({ cwd: root, dir: '.' });
+  const viaTasks = runSpecGate({ cwd: root });
+  assert.equal(viaRoot.ok, true, JSON.stringify(viaRoot.findings));
+  assert.equal(viaTasks.ok, true, JSON.stringify(viaTasks.findings));
+  assert.deepEqual(viaRoot.evidence.changes, ['CHG-20260101-probe']);
+
+  // 空的仓库根仍然要失败，不能被下探掩盖
+  assert.equal(runSpecGate({ cwd: tmp('sg-spec-empty-'), dir: '.' }).code, 1);
+});
+
+test('ship 闸：注入区块版本旧于模板时报错（#3 回归）', () => {
+  const src = tmp('sg-inj-src-');
+  const dst = tmp('sg-inj-dst-');
+  for (const root of [src, dst]) {
+    fs.mkdirSync(path.join(root, 'demo'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'demo', 'SKILL.md'), 'name: demo\n');
+  }
+  const injectFile = path.join(tmp('sg-inj-file-'), 'AGENTS.md');
+  const manifest = { harnesses: { h: { skills: { demo: {} } } } };
+  const harness = { id: 'h', skillsPath: dst, injectPath: injectFile };
+
+  fs.writeFileSync(injectFile, '<!-- shipgate:begin v2 -->\nold rules\n<!-- shipgate:end -->\n');
+  const stale = runShipGate({ harnesses: [harness], manifest, skillsSource: src });
+  assert.ok(stale.findings.some((f) => /注入区块是 v2/.test(f.message)), '旧区块必须报');
+
+  fs.writeFileSync(injectFile, `<!-- shipgate:begin ${expectedBlockVersion()} -->\ncurrent\n<!-- shipgate:end -->\n`);
+  assert.deepEqual(runShipGate({ harnesses: [harness], manifest, skillsSource: src }).findings, []);
 });
 
 test('missingEngineHints：齐全时为空，缺哪个就只给哪个的命令', () => {

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { exists, readText } from '../lib/fsx.mjs';
 import { sourceTreeDrift } from '../lib/skills.mjs';
-import { blockVersion } from '../inject/render.mjs';
+import { blockVersion, expectedBlockVersion } from '../inject/render.mjs';
 
 /**
  * Verifies that each target harness actually holds what the manifest claims:
@@ -36,8 +36,20 @@ export function runShipGate({ harnesses = [], manifest, skillsSource }) {
     if (harness.injectPath) {
       if (!exists(harness.injectPath)) {
         findings.push({ level: 'error', harness: harness.id, message: `注入文件缺失：${harness.injectPath}` });
-      } else if (!blockVersion(readText(harness.injectPath))) {
-        findings.push({ level: 'error', harness: harness.id, message: `注入文件没有 shipgate 区块：${harness.injectPath}` });
+      } else {
+        const found = blockVersion(readText(harness.injectPath));
+        const expected = expectedBlockVersion();
+        if (!found) {
+          findings.push({ level: 'error', harness: harness.id, message: `注入文件没有 shipgate 区块：${harness.injectPath}` });
+        } else if (expected && found !== expected) {
+          // A stale block (e.g. v2 left over from an older release) looks
+          // installed but teaches the agent old rules — that is drift too.
+          findings.push({
+            level: 'error',
+            harness: harness.id,
+            message: `注入区块是 ${found}，当前版本是 ${expected} —— 重跑 shipgate install：${harness.injectPath}`,
+          });
+        }
       }
     }
 

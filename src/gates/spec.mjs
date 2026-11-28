@@ -43,25 +43,30 @@ export function checkChangeDir(dir) {
  * change directories (tasks). A parent with zero CHG-* children fails: "no
  * contract" is the failure this gate exists to catch.
  */
-export function runSpecGate({ cwd = process.cwd(), dir = 'tasks' } = {}) {
-  const base = path.resolve(cwd, dir);
-  const direct = exists(path.join(base, 'SPEC.md')) ? [path.basename(base)] : null;
+function changeDirsIn(base) {
+  if (exists(path.join(base, 'SPEC.md'))) return [{ name: path.basename(base), path: base }];
+  return listDir(base)
+    .filter((e) => e.isDirectory() && /^CHG-/.test(e.name))
+    .map((e) => ({ name: e.name, path: path.join(base, e.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
-  const changeDirs = direct
-    ? [{ name: direct[0], path: base }]
-    : listDir(base)
-        .filter((e) => e.isDirectory() && /^CHG-/.test(e.name))
-        .map((e) => ({ name: e.name, path: path.join(base, e.name) }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+export function runSpecGate({ cwd = process.cwd(), dir = 'tasks' } = {}) {
+  const requested = path.resolve(cwd, dir);
+  // `shipgate spec check <repo-root>` is what people type, while contracts live
+  // in <root>/tasks. Probe exactly one level down — never search the tree.
+  const nested = path.join(requested, 'tasks');
+  const base = changeDirsIn(requested).length > 0 ? requested : changeDirsIn(nested).length > 0 ? nested : requested;
+  const changeDirs = changeDirsIn(base);
 
   if (changeDirs.length === 0) {
     return {
       gate: 'spec',
       ok: false,
       code: 1,
-      summary: `${base} 下没有任何 CHG-* 变更目录：没有契约，不允许改代码`,
+      summary: `${requested}（及 ${nested}）下没有任何 CHG-* 变更目录：没有契约，不允许改代码`,
       findings: [{ level: 'error', message: '缺少 tasks/CHG-<id>/ 契约目录' }],
-      evidence: { dir: base },
+      evidence: { dir: requested },
     };
   }
 

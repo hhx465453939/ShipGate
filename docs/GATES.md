@@ -69,11 +69,17 @@ which cbh && cbh --help                # cbh 无 --version，只能看子命令
 
 校验每个受管 harness：
 
-1. manifest 里记录的 skill 文件都在，且 hash 与源一致；
-2. 注入文件里有 `<!-- shipgate:begin -->` 区块；
+1. manifest 里记录的 skill 文件都在，且与源逐文件一致（判据同 `installSkills`：目的自加文件不算漂移）；
+2. 注入文件里有 `<!-- shipgate:begin vN -->` 区块，**且版本等于当前模板的版本**（旧版残留区块算漂移）；
 3. 带 gate 的 harness 有 `policy.js` 等硬门控产物。
 
-`shipgate status` 是它的输出视图，`shipgate doctor` 会额外跑一遍一致性检查。
+谁能让它失败：
+
+| 命令 | 行为 |
+|---|---|
+| `shipgate doctor` | 跑一遍一致性检查；有 finding 时退出码 1（体检必须能红） |
+| `shipgate status --strict` | 同样的检查；不一致时退出码 1，适合 CI |
+| `shipgate status` | 默认只是状态表，不校验、不改退出码 |
 
 ## 技能包与闸的联动
 

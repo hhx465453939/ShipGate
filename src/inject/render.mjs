@@ -62,6 +62,14 @@ export function blockVersion(text) {
   return match ? match[1] : null;
 }
 
+/**
+ * The block version this release ships, parsed from the template itself so the
+ * gate and the installer can never disagree about what "current" means.
+ */
+export function expectedBlockVersion() {
+  return blockVersion(readText(templatePath()));
+}
+
 export function cursorFrontmatter() {
   return CURSOR_FRONTMATTER;
 }
