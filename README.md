@@ -239,7 +239,11 @@ gh run watch
 
 - **JOB 绿但没发出去** → 看 `版本是否已发布（幂等）` 步骤，`::notice::` 说明该版本已在 npm，属预期跳过。
 - **`ENEEDAUTH` / `need auth`** → 仓库里没有名为 `NPM_TOKEN` 的 secret（名字写错也算没有）。GitHub 不支持给 secret 改名：新建一个 `NPM_TOKEN` 粘贴同一个 token 值，再删旧名。
-- **`EOTP` / `E403`** → token 类型不对（用了需要 OTP 的 Publish token）或权限不足，换 Granular Read and write 重配 secret。
+- **`EOTP`（要一次性密码）** → token 本身有效，但没有「免 2FA 写操作」属性。账号开了 2FA 时这样就必须重走 token，二选一：
+  - **Classic** 类型选 **Automation**（天然免 OTP，最省事）；
+  - **Granular** 类型在创建页**取消勾选** `Require two-factor authentication for write actions`。
+  换完把新值重新粘进 `NPM_TOKEN`，重跑 release。
+- **`E403`** → 权限问题：Granular token 没选 **Read and write**，或包范围没选 **All packages**（首次发布前无法预勾单包）。
 - **`tag x 与 package.json y 不一致`** → 先改 `package.json` 版本并 push，再打 tag。
 
 ## 与上游的关系
