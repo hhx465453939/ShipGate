@@ -7,7 +7,7 @@ import { allHarnesses, capabilities, resolveHarness } from '../src/harness/index
 import { DEFAULTS } from '../src/lib/cfg.mjs';
 import { detectLegacyGates } from '../src/lib/gate.mjs';
 import { installSkills, detectFlatSkillDuplicates } from '../src/lib/skills.mjs';
-import { install, reportLegacyGates } from '../src/commands/deploy.mjs';
+import { checkEngines, install, reportLegacyGates } from '../src/commands/deploy.mjs';
 
 function tmp(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -189,4 +189,36 @@ test('--with-goal-mode 与 --with-auto-continue 互斥，退出码 2', async () 
     args: [],
   });
   assert.equal(code, 2);
+});
+
+test('cursor：skills 分发到 ~/.cursor/skills（内置 skill 另在 skills-cursor）', () => {
+  const h = builtin('cursor');
+  assert.ok(h.skillsPath, 'cursor 不该再是 skills: null');
+  assert.equal(h.skillsPath.endsWith(path.join('.cursor', 'skills')), true, h.skillsPath);
+  assert.equal(capabilities(h).skills, true);
+  assert.ok(h.injectPath.endsWith(path.join('.cursor', 'rules', 'shipgate.mdc')));
+});
+
+test('checkEngines：无 pipx 给两步式命令，有 pipx 才给 pipx', () => {
+  const original = process.env.PATH;
+  try {
+    // 没有 pipx：提示必须能照拄执行（clone + 显式索引），不能只写 pipx
+    process.env.PATH = tmp('shipgate-nopipx-');
+    const bare = checkEngines({ cwd: process.cwd() });
+    assert.match(bare.cbh.install, /git clone/);
+    assert.match(bare.cbh.install, /pypi\.org\/simple/);
+    assert.equal(bare.cbh.noVersionFlag, true);
+    assert.equal(typeof bare.cbh.onPath, 'boolean');
+
+    // 有 pipx：走隔离 venv 的一步式
+    const stub = tmp('shipgate-pipx-');
+    const exe = path.join(stub, process.platform === 'win32' ? 'pipx.EXE' : 'pipx');
+    fs.writeFileSync(exe, '');
+    if (process.platform !== 'win32') fs.chmodSync(exe, 0o755);
+    process.env.PATH = [stub, original].join(path.delimiter);
+    const withPipx = checkEngines({ cwd: process.cwd() });
+    assert.match(withPipx.cbh.install, /^pipx install git\+/);
+  } finally {
+    process.env.PATH = original;
+  }
 });

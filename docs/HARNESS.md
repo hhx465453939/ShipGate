@@ -9,9 +9,26 @@
 | `dsh` | dsh | `~/.dsh` | `~/.agents/skills`（与 pi 同一链接） | — | — | `~/.dsh/AGENTS.md` | `~/.dsh/extensions/enforce-rules` |
 | `codex` | Codex CLI | `~/.codex` | `~/.codex/skills` | — | — | `~/.codex/AGENTS.md` | — |
 | `gemini` | Gemini CLI | `~/.gemini` | `~/.gemini/skills` | — | — | `~/.gemini/GEMINI.md` | — |
-| `cursor` | Cursor | `~/.cursor` | —（无 skills 目录） | — | — | `~/.cursor/rules/shipgate.mdc` | — |
+| `cursor` | Cursor | `~/.cursor` | `~/.cursor/skills` | — | — | `~/.cursor/rules/shipgate.mdc` | — |
 | `kimi` | Kimi Code | `~/.kimi-code` | `~/.kimi-code/skills` | —（官方不支持 Claude commands） | — | `~/.kimi-code/AGENTS.md` | — |
 | `antigravity` | Antigravity | `~/.antigravity` | `~/.gemini/antigravity/skills` | — | — | —（全局规则路径未验证） | — |
+
+### Cursor 的 skills 依据（2026-11-28 实测）
+
+`skills: null` 是过期声明，已改为 `~/.cursor/skills`：
+
+- 用户级 skill 已存在于 `~/.cursor/skills/shidianguji-fetcher/SKILL.md`；
+- `~/.cursor/skills-cursor/` 下有 20 个 Cursor 内置 skill（`create-skill`、`create-rule`、`loop`、`babysit` …），说明 Agent Skills 已在该版本落地；
+- 写入用户级路径与官方内置同构，不会覆盖内置集（内置在 `skills-cursor/`，分发只写 `skills/`）。
+
+### 引擎共享，指导分发
+
+`aislop` / `cbh` 是**进程级依赖**：装在 PATH 上一次，claude / pi / dsh / codex / gemini / cursor / kimi / antigravity 的 shell 工具都能调。ShipGate 不需要也不应该给每个 harness 装一份引擎。
+
+按 harness 分发的是**闸用法 skill**（`shipgate-quality` / `shipgate-security`）：每个 harness 的 skills 根各一份，内容相同。所以多 agent 环境下的验收是两件事：
+
+1. `shipgate doctor` 引擎节全绿、且没提示「bin 目录不在 PATH」；
+2. 各 harness 的 skills 根里都有这两份 skill（`shipgate status` 的 skills 列不为 0）。
 
 ### 未纳入：ZCode
 

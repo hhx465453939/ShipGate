@@ -168,26 +168,81 @@ export function reportLegacyGates(home) {
   return findings;
 }
 
-export function checkEngines(ctx) {
-  const aislopBin = resolveAislop(ctx.cwd);
+/**
+ * Engine installation hints must be copy-pasteable on the machine that prints
+ * them. Two traps found on 2026-11-28: the default pip index answered "no
+ * versions" for pipx and even for setuptools, and `pip install git+…` died in
+ * build isolation with a checkout error (exit 128). So when pipx is absent the
+ * hint is two steps — clone, then install from the checkout — with the index
+ * named explicitly.
+ */
+function cbhInstallHint(hasPipx) {
+  const src = 'https://github.com/elementalsouls/Claude-BugHunter';
+  if (hasPipx) return `pipx install git+${src}`;
+  const win = process.platform === 'win32';
+  const dir = win ? '"$HOME\\.local\\src\\Claude-BugHunter"' : '~/.local/src/Claude-BugHunter';
+  const python = win ? 'python' : 'python3';
+  const clone = `git clone --depth 1 ${src} ${dir}`;
+  const install = `${python} -m pip install --user -i https://pypi.org/simple ${dir}`;
+  return win ? `${clone}; ${install}` : `${clone} && ${install}`;
+}
+
+/**
+ * One reporter for both `doctor` and `install`: a missing engine must always
+ * print the exact command that installs it, and an installed engine must never
+ * print an empty version cell (that reads as a broken parse).
+ */
+function reportEngines(engines, { withPath = true } = {}) {
+  for (const [name, info] of Object.entries(engines)) {
+    if (!info.bin) {
+      log.warn(`${name} 未安装 → ${info.install}`);
+      continue;
+    }
+    const version = info.version ?? (info.noVersionFlag ? '(无版本开关)' : '(版本未知)');
+    const where = withPath ? ` ${c.dim(info.bin)}` : '';
+    const offPath = info.onPath === false ? ` ${c.yellow('（bin 目录不在 PATH：其他 agent 调不到）')}` : '';
+    log.ok(`${name} ${version}${where}${offPath}`);
+  }
+}
+
+/** A binary outside PATH still exists, but no other agent can invoke it. */
+function onPath(bin) {
+  if (!bin) return false;
+  const dir = path.dirname(bin);
+  const entries = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const key = (p) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const wanted = key(dir);
+  return entries.some((entry) => {
+    try {
+      return key(entry) === wanted;
+    } catch {
+      return false;
+    }
+  });
+}
+
+export function checkEngines(ctx) {  const aislopBin = resolveAislop(ctx.cwd);
   const cbhBin = which('cbh');
   const pipx = which('pipx');
-  const pip = which('pip3') ?? which('pip');
-  const py = which('python3') ?? which('python');
-
-  // Fallback chain: pipx (isolated venv) → pip --user → python -m pip. Naming
-  // only pipx left users without it staring at a command they cannot run.
-  const cbhInstall = pipx
-    ? 'pipx install git+https://github.com/elementalsouls/Claude-BugHunter'
-    : pip
-      ? 'pip3 install --user git+https://github.com/elementalsouls/Claude-BugHunter'
-      : py
-        ? 'python3 -m pip install --user git+https://github.com/elementalsouls/Claude-BugHunter'
-        : '需先装 Python 3.9+，再 pipx install git+https://github.com/elementalsouls/Claude-BugHunter';
 
   return {
-    aislop: { bin: aislopBin, version: aislopBin ? toolVersion(aislopBin) : null, install: 'npm i -g aislop' },
-    cbh: { bin: cbhBin, version: cbhBin ? toolVersion(cbhBin) : null, install: cbhInstall, packageManager: pipx ? 'pipx' : pip ? 'pip3' : 'none' },
+    aislop: {
+      bin: aislopBin,
+      version: aislopBin ? toolVersion(aislopBin) : null,
+      install: 'npm i -g aislop',
+      path: aislopBin ? path.dirname(aislopBin) : null,
+      onPath: onPath(aislopBin),
+    },
+    cbh: {
+      bin: cbhBin,
+      // cbh has no --version switch; say so instead of printing a blank.
+      version: cbhBin ? toolVersion(cbhBin, null) : null,
+      noVersionFlag: true,
+      install: cbhInstallHint(Boolean(pipx)),
+      packageManager: pipx ? 'pipx' : 'pip',
+      path: cbhBin ? path.dirname(cbhBin) : null,
+      onPath: onPath(cbhBin),
+    },
   };
 }
 
@@ -258,10 +313,7 @@ export async function doctor(ctx) {
   log.plain(table(rows, ['harness', 'found', 'skills', 'cmds', 'agents', 'inject', 'gate']));
 
   log.title('引擎');
-  for (const [name, info] of Object.entries(engines)) {
-    if (info.bin) log.ok(`${name} ${info.version ?? ''} ${c.dim(info.bin)}`);
-    else log.warn(`${name} 未安装 → ${info.install}`);
-  }
+  reportEngines(engines);
 
   const nodeMajor = Number.parseInt(process.version.slice(1), 10);
   if (nodeMajor < 20) log.err(`node ${process.version} 低于最低要求 20`);
@@ -418,10 +470,7 @@ export async function install(ctx) {
   const engines = checkEngines(ctx);
   log.title('引擎');
   const missingEngines = Object.entries(engines).filter(([, info]) => !info.bin);
-  for (const [name, info] of Object.entries(engines)) {
-    if (info.bin) log.ok(`${name} ${info.version ?? ''}`);
-    else log.warn(`${name} 未安装 → ${info.install}`);
-  }
+  reportEngines(engines, { withPath: false });
   if (missingEngines.length === 0 && !dryRun) {
     log.info(c.dim('提示：quality 的 per-edit 钩子需显式启用 → shipgate install --hooks 或 aislop hook install --claude'));
   }

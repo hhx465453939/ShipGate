@@ -11,6 +11,29 @@ description: 质量闸使用方法（aislop）。当需要给代码打分、修 
 - 分数不达标：`aislop fix` 修机械问题，剩下的交给 `aislop agent`。
 - 想每次编辑自动拦：`aislop hook install --claude`（需显式执行，ShipGate 不代劳）。
 
+## 引擎自检（先跑这个）
+
+quality 闸本身不实现规则，全部委派给 `aislop`。引擎不在，闸只会返回 code 3 —— 先把引擎装好再谈分数。
+
+```bash
+which aislop            # 是否在 PATH（Windows 上是 aislop.CMD）
+aislop --version        # 期望 0.23.0+（本机实测版本）
+aislop doctor           # 四个引擎：Formatting / Linting / Code Quality / AI Slop 都应 ready
+```
+
+装引擎：
+
+```bash
+npm i -g aislop
+```
+
+判读与坑：
+
+- `aislop doctor` 有引擎 `✗` → 先修引擎（例如 oxlint 与老 CPU 指令集不兼容会 SIGILL），别去改代码分数。
+- 引擎装在 PATH 上一次即可：**所有 harness 的 shell 工具共享同一份**（claude / pi / dsh / codex / gemini / cursor / kimi / antigravity），不需要按 agent 各装一遍。
+- 只有**指导**按 harness 分发：这份 skill 被复制到每个 harness 的 skills 根，引擎命令本身是全局的。
+- `shipgate doctor` 会打印引擎绝对路径与「bin 目录不在 PATH」告警；看到这条告警说明某个 shell 里调不到它。
+
 ## 命令
 
 ```bash

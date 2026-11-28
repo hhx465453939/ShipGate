@@ -72,7 +72,10 @@ export const BUILTIN = [
     id: 'cursor',
     label: 'Cursor',
     detect: '~/.cursor',
-    skills: null,
+    // Cursor reads user-level Agent Skills from ~/.cursor/skills (its 20 built-in
+    // skills live in ~/.cursor/skills-cursor). Declaring null here left Cursor as
+    // the only detected harness with zero gate skills.
+    skills: '~/.cursor/skills',
     commands: null,
     agents: null,
     inject: '~/.cursor/rules/shipgate.mdc',

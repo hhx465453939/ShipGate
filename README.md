@@ -42,9 +42,27 @@ shipgate install --dry-run        # 只看计划，不写盘
 引擎（ShipGate 只检查，不替你装）：
 
 ```bash
-npm i -g aislop                                                  # quality 闸
-pipx install git+https://github.com/elementalsouls/Claude-BugHunter  # security 闸
+npm i -g aislop                                                      # quality 闸
+
+# security 闸：cbh（Claude-BugHunter，零依赖，Python 3.9+）
+# 有 pipx 的机器一步搞定：
+#   pipx install git+https://github.com/elementalsouls/Claude-BugHunter
+# 没有 pipx（本机实测）：先 clone 再本地装，两个坑一次绕开
+#   —— 默认 pip 镜像可能返回空版本表；pip install git+… 会在 build isolation 里 checkout 失败
+git clone --depth 1 https://github.com/elementalsouls/Claude-BugHunter ~/.local/src/Claude-BugHunter
+python3 -m pip install --user -i https://pypi.org/simple ~/.local/src/Claude-BugHunter
+#   Windows PowerShell：路径写 "$HOME\.local\src\Claude-BugHunter"，python3 换 python
 ```
+
+装完自检（两个引擎都装在 PATH 上一次，所有 harness 的 shell 都能调）：
+
+```bash
+shipgate doctor      # 引擎节：应该两行都是 ✔，并打印绝对路径
+which aislop && aislop doctor      # 四个引擎全 ready
+which cbh && cbh --help            # 子命令：recon/surface/diff/classify/triage/report/scope
+```
+
+`cbh` 没有 `--version` 开关，doctor 会写「(无版本开关)」；查版本用 `pip show claude-bughunter`。
 
 ## 装了之后拿到什么
 

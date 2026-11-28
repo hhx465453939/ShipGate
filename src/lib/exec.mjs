@@ -66,7 +66,14 @@ export function run(cmd, args = [], { timeout = 600_000, cwd, env } = {}) {
   };
 }
 
+/**
+ * `args = null` means "this tool has no version switch". cbh's argparse accepts
+ * only subcommands, so probing `--version` just prints a usage error — the
+ * caller then reports "no version flag" instead of an empty field that reads
+ * like a broken parse.
+ */
 export function version(cmd, args = ['--version']) {
+  if (!args) return null;
   const r = run(cmd, args, { timeout: 20_000 });
   if (!r.ok) return null;
   return (r.stdout || r.stderr).trim().split('\n')[0] || null;

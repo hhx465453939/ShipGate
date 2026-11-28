@@ -16,6 +16,23 @@
 | 2 | 用法错 | 例如 security 缺 `--scope` |
 | 3 | 环境缺 | 引擎未装 / 输出无法解析 |
 
+code 3 有两种含义，先分清再动手：
+
+| 现象 | 含义 | 处置 |
+|---|---|---|
+| `aislop 未安装` / `cbh 未安装` | 引擎不在 PATH | `shipgate doctor` 里的 install 列给的命令可直接执行 |
+| `aislop 输出无法解析（exit=…）` | 引擎在但跑不起来 | 单独跑 `aislop scan . --json` 看真实报错；`.cmd` 垫片启动问题、引擎崩溃都在这一类 |
+
+### 引擎自检
+
+```bash
+shipgate doctor            # 引擎节：绝对路径 + 版本 +「bin 目录不在 PATH」告警
+which aislop && aislop doctor          # Formatting/Linting/Code Quality/AI Slop 全 ready
+which cbh && cbh --help                # cbh 无 --version，只能看子命令
+```
+
+引擎是**进程级共享**的：装在 PATH 上一次，所有 harness 的 shell 工具都能调；只有**闸用法 skill** 是按 harness 分发的。
+
 ## spec 闸细节
 
 - 扫描 `cfg.spec.dir`（默认 `tasks`）下的 `CHG-*` 目录；也可直接指向一个 CHG 目录。
@@ -32,6 +49,7 @@
 
 - 只做**前置合规校验**：scope 存在、非空、有范围段落、cbh 在。
 - 不自动发探测包（红线）。通过后打印 `cbh recon/surface/classify/triage` 的下一步。
+- cbh 实际子命令：`recon` / `surface` / `diff` / `classify` / `triage` / `report` / `scope`；**没有 `--version`**（查版本用 `pip show claude-bughunter`）。
 - 想把它变成自动扫描器是错的：主动探测在错误范围上会构成违法。
 
 ## ship 闸细节
